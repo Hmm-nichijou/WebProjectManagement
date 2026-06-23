@@ -1,0 +1,238 @@
+# Web Project Management
+
+一款基于 Swift 6 + SwiftUI 构建的 macOS 原生桌面应用，专为前端开发者设计的项目管理工具。支持批量管理 Vue、React、Angular 及静态 HTML 项目，提供一键启动开发服务器、构建打包、依赖管理等常用操作，并以实时终端日志面板呈现执行过程。
+
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 语言 | Swift 6（严格并发检查，`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`） |
+| UI 框架 | SwiftUI（macOS 26.5+） |
+| 状态管理 | `@Observable`（Observation 框架） |
+| 并发模型 | Actor 隔离 + `AsyncStream` 日志流 |
+| 进程管理 | Foundation `Process` + `Pipe`（App Sandbox 已关闭） |
+| 应用检测 | Spotlight `mdfind` + `NSWorkspace` |
+| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL） |
+| 构建系统 | Xcode 16+，`PBXFileSystemSynchronizedRootGroup`（源文件自动包含） |
+
+## 架构概览
+
+```
+┌─────────────────────────────────────────────────────────┐
+│               WebProjectManagementApp                   │
+│                     (应用入口)                          │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ┌─────────────┐   ┌───────────────┐  ┌─────────────┐   │
+│  │ ContentView │   │ProjectCardView│  │LogDrawerView│   │
+│  │  (主界面)   │ ─▶│  (项目卡片)   │  │ (终端面板)  │   │
+│  │  搜索/筛选  │   │  操作/状态    │  │  实时日志   │   │
+│  └─────────────┘   └───────────────┘  └─────────────┘   │
+│         │                │                  │           │
+│         └────────────────┼──────────────────┘           │
+│                          │                              │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │              AppState (@Observable)               │  │
+│  │     全局状态：项目列表、目录、置顶、编辑器        │  │
+│  ├───────────────────────────────────────────────────┤  │
+│  │  LogStore (@Observable)  ProjectProcessManager    │  │
+│  │  独立日志存储            (Actor 进程管理)         │  │
+│  │  按路径分代追踪          AsyncStream 日志流       │  │
+│  └───────────────────────────────────────────────────┘  │
+│                                                         │
+│  ┌──────────────────┐                                   │
+│  │ ProjectScanner   │                                   │
+│  └──────────────────┘                                   │
+│  扫描目录，识别框架与包管理器                           │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 核心设计原则
+
+**日志与项目列表分离**：`LogStore` 作为独立的 `@Observable` 对象管理日志，通过按路径的"代数计数器"（generation counter）实现精准视图更新——日志追加仅触发对应项目的 `LogDrawerView` 重渲染，不会引起整个项目网格的重新计算。
+
+**AsyncStream 单消费者模式**：`AsyncStream` 仅支持单个迭代器消费者。应用中由 `AppState` 内的后台 `Task` 统一消费日志流并写入 `LogStore`，UI 层通过 `Task.sleep(200ms)` 轮询 `LogStore` 获取最新日志，避免多消费者竞争。
+
+**Actor 进程安全**：`ProjectProcessManager` 声明为 `actor`，确保多项目并发操作（启动、构建、安装）时的数据竞争安全。所有进程会话（`Session`）仅在 actor 内部访问。
+
+**多阶段操作的 Continuation 生命周期管理**：`handleTermination` 仅记录退出状态，不关闭日志流。每个调用方（`build`、`cleanBuild`、`start`、`reinstall`）自行控制 `continuation.finish()` 的时机，确保构建后压缩、云盘打开等后续操作的日志不会丢失。`cleanBuild` 的两阶段流程（安装→构建）复用同一个 `AsyncStream` continuation。
+
+**Equatable 卡片优化**：`ProjectCardView` 实现 `Equatable` 协议并在 `ForEach` 中使用 `.equatable()`，仅当项目状态、名称或置顶状态变化时才重算卡片 body，避免无关更新引起的渲染开销。
+
+## 功能特性
+
+### 项目管理
+
+- **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json` 或 `index.html` 的项目
+- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），以及 HTML 静态项目
+- **包管理器检测**：通过锁文件（`package-lock.json`、`pnpm-lock.yaml`、`yarn.lock`）自动识别 npm/pnpm/yarn
+- **Git 分支显示**：检测并展示每个项目的当前 Git 分支
+- **项目置顶**：置顶状态按绝对路径持久化到 UserDefaults，重新扫描或切换目录后不丢失
+
+### 搜索与筛选
+
+- **实时搜索**：支持按项目名称、Git 分支名、路径关键词搜索（Cmd+F 聚焦）
+- **框架筛选**：点击框架标签（Vue/React/Angular/HTML）快速过滤
+- **状态筛选**：按运行中、安装中、构建中、压缩中等状态过滤项目
+- **结果统计**：筛选激活时显示匹配项目数 / 总项目数
+
+### 进程操作
+
+- **启动开发服务器**：执行 `npm/pnpm/yarn run dev`，实时输出日志
+- **快速构建**：执行 `build`（或 `border`）脚本，构建成功后自动压缩 dist 为 `dist.zip`
+- **全新构建**：两阶段流水线——删除 `node_modules` → 重装依赖 → 执行构建 → 压缩 dist
+- **重装依赖**：删除 `node_modules` 后重新安装
+- **停止进程**：先发送 `SIGINT` 优雅退出，超时后强制终止
+- **云盘集成**：构建并压缩完成后自动在浏览器中打开配置的云盘网站
+
+### 项目状态
+
+五种细粒度状态，卡片和筛选标签同步显示：
+
+| 状态 | 描述 | 颜色 |
+|------|------|------|
+| `idle` | 空闲 | 灰色 |
+| `running` | 运行中（开发服务器） | 绿色 |
+| `installing` | 安装依赖中 | 蓝色 |
+| `building` | 构建中 | 蓝色 |
+| `compressing` | 压缩 dist 中 | 蓝色 |
+
+### 快捷操作
+
+- **在 Finder 中打开**：直接在 Finder 中定位项目目录
+- **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称
+- **在终端中打开**：通过 AppleScript 在 Terminal.app 中打开并 `cd` 到项目目录
+- **移到废纸篓**：安全删除项目（使用 `FileManager.trashItem`），支持从废纸篓恢复
+
+### 批量操作
+
+工具栏"更多"菜单提供：
+
+- **删除所有构建**：批量删除所有项目的 `dist` 目录和 `dist.zip`
+- **删除所有依赖**：批量删除所有项目的 `node_modules`
+
+### Git 克隆
+
+通过"添加项目"弹窗输入 Git 仓库地址，自动克隆到项目集根目录并刷新项目列表。
+
+### 终端日志面板
+
+底部统一的深色终端风格面板，功能包括：
+
+- 点击项目卡片上的日志按钮打开/切换/关闭面板
+- 实时显示进程 stdout/stderr 输出
+- 等宽字体 + 深色背景，模拟真实终端体验
+- 自动滚动开关
+- 日志清除功能
+- 文本可选可复制
+
+## 项目结构
+
+```
+Web Project Management/
+├── Web Project Management.xcodeproj/
+│   └── project.pbxproj
+├── Web Project Management/
+│   ├── WebProjectManagementApp.swift          # 应用入口，窗口配置与菜单栏命令
+│   │
+│   ├── Models/                                # 数据模型层
+│   │   ├── Project.swift                      # Project 模型 + PackageManagerType 枚举
+│   │   ├── ProjectStatus.swift                # 项目运行状态枚举（5 种状态）
+│   │   └── FrameworkType.swift                # 前端框架类型枚举 + 标识色
+│   │
+│   ├── Core/                                  # 核心业务逻辑层
+│   │   ├── AppState.swift                     # 全局状态管理（@Observable）+ EditorInfo
+│   │   ├── LogStore.swift                     # 独立日志存储（按路径分代追踪）
+│   │   ├── ProjectProcessManager.swift        # Actor 进程管理器（AsyncStream 日志流）
+│   │   └── ProjectScanner.swift               # 项目目录扫描器（框架/包管理器识别）
+│   │
+│   ├── Views/                                 # SwiftUI 视图层
+│   │   ├── ContentView.swift                  # 主内容视图 + 搜索筛选栏 + 工具栏 + 弹窗
+│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化）+ 操作按钮
+│   │   ├── LogDrawerView.swift                # 底部终端日志面板
+│   │   ├── EmptyStateView.swift               # 首次启动引导视图（拖拽/选择目录）
+│   │   └── AnimatedBackgroundView.swift       # 窗口背景色
+│   │
+│   └── Assets.xcassets/                       # 资源文件
+│       ├── AppIcon.appiconset/                # 应用图标
+│       ├── AccentColor.colorset/              # 主题强调色
+│       ├── vue.imageset/                      # Vue 框架图标
+│       ├── react.imageset/                    # React 框架图标
+│       ├── angular.imageset/                  # Angular 框架图标
+│       ├── html.imageset/                     # HTML 静态项目图标
+│       ├── unknown.imageset/                  # 未知类型图标
+│       └── gitbranch.imageset/                # Git 分支图标
+│
+├── .gitignore
+└── README.md
+```
+
+## 构建与运行
+
+### 环境要求
+
+- macOS 26.5 或更高版本
+- Xcode 16+（需支持 Swift 6 严格并发）
+
+### 构建步骤
+
+```bash
+# 克隆仓库
+git clone git@github.com:Hmm-nichijou/WebProjectManagement.git
+cd "Web Project Management"
+
+# 使用 xcodebuild 构建
+xcodebuild -project "Web Project Management.xcodeproj" \
+  -scheme "Web Project Management" \
+  -configuration Debug \
+  build
+```
+
+### 在 Xcode 中打开
+
+```bash
+open "Web Project Management.xcodeproj"
+```
+
+按 `Cmd+R` 即可运行。
+
+### 注意事项
+
+- **App Sandbox 已关闭**（`ENABLE_APP_SANDBOX = NO`）：应用需要通过 `Process` 执行 npm/pnpm/yarn/git 等外部命令，沙盒环境会阻止这些操作
+- **Swift 6 严格并发**：项目启用了 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`，所有类型默认隔离在主线程，跨 actor 访问需要显式标注 `@Sendable` 或使用 `Task.detached`
+- **源文件自动包含**：使用 `PBXFileSystemSynchronizedRootGroup`，在源文件目录中新增的 `.swift` 文件会自动加入构建目标，无需手动编辑 `.pbxproj`
+
+## 快捷键
+
+| 快捷键 | 功能 |
+|--------|------|
+| `Cmd+N` | 添加项目（Git 克隆） |
+| `Cmd+O` | 选择项目目录 |
+| `Cmd+R` | 刷新扫描 |
+| `Cmd+F` | 聚焦搜索框 |
+| `Cmd+,` | 打开设置 |
+
+## 用户偏好持久化
+
+应用通过 `UserDefaults` 持久化以下数据：
+
+| 键名 | 类型 | 说明 |
+|------|------|------|
+| `savedRootDirectory` | `String` | 项目集根目录路径 |
+| `savedCloudDriveURL` | `String` | 云盘网站 URL |
+| `savedPinnedProjectIDs` | `Data` (JSON) | 置顶项目的绝对路径集合 |
+
+## 性能优化策略
+
+本应用在 SwiftUI macOS 开发中实施了多项性能优化：
+
+- **日志分离渲染**：`LogStore` 独立于 `projects` 数组，日志追加不触发项目网格重算
+- **Equatable 卡片**：`ProjectCardView` 通过 `Equatable` + `.equatable()` 跳过无关属性变化引起的 body 重算
+- **避免高开销修饰符**：不使用 `.ultraThinMaterial`（GPU 密集）、不使用 `repeatForever` 动画（窗口切换时卡顿）、静态阴影替代动态阴影
+- **非动画滚动**：日志面板使用非动画 `scrollTo`，避免快速日志块堆积导致动画栈溢出
+- **轮询消费**：UI 以 200ms 间隔轮询 `LogStore`，而非直接消费 `AsyncStream`，避免双消费者竞争
+
+## 许可证
+
+本项目仅供个人开发使用。
