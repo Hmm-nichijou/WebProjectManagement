@@ -1,6 +1,6 @@
 # Web Project Management
 
-一款基于 Swift 6 + SwiftUI 构建的 macOS 原生桌面应用，专为前端开发者设计的项目管理工具。支持批量管理 Vue、React、Angular 及静态 HTML 项目，提供一键启动开发服务器、构建打包、依赖管理等常用操作，并以实时终端日志面板呈现执行过程。
+一款基于 Swift 6 + SwiftUI 构建的 macOS 原生桌面应用，专为前端开发者设计的项目管理工具。支持批量管理 Vue、React、Angular、uni-app、uni-app x、微信小程序及静态 HTML 项目，提供一键启动开发服务器、构建打包、依赖管理等常用操作，并以实时终端日志面板呈现执行过程。
 
 ## 技术栈
 
@@ -12,7 +12,7 @@
 | 并发模型 | Actor 隔离 + `AsyncStream` 日志流 |
 | 进程管理 | Foundation `Process` + `Pipe`（App Sandbox 已关闭） |
 | 应用检测 | Spotlight `mdfind` + `NSWorkspace` |
-| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL） |
+| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL、主题模式） |
 | 构建系统 | Xcode 16+，`PBXFileSystemSynchronizedRootGroup`（源文件自动包含） |
 
 ## 架构概览
@@ -64,17 +64,18 @@
 
 ### 项目管理
 
-- **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json` 或 `index.html` 的项目
-- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），以及 HTML 静态项目
+- **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json`、`index.html` 或特征文件的项目
+- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），uni-app / uni-app x 项目（基于 `manifest.json` + `pages.json` 特征文件），微信小程序项目（基于 `miniprogram/pages/*.wxml`），以及 HTML 静态项目
 - **包管理器检测**：通过锁文件（`package-lock.json`、`pnpm-lock.yaml`、`yarn.lock`）自动识别 npm/pnpm/yarn
-- **Git 分支显示**：检测并展示每个项目的当前 Git 分支
+- **Git 集成**：检测并展示当前分支名和工作区状态（修改/未跟踪/ahead/behind），工作区干净时不显示状态图标
+- **磁盘占用统计**：信息栏汇总显示所有项目的 node_modules、dist、dist.zip 总占用
 - **项目置顶**：置顶状态按绝对路径持久化到 UserDefaults，重新扫描或切换目录后不丢失
+- **未知类型兼容**：无法识别的项目类型仍保留在列表中显示
 
 ### 搜索与筛选
 
 - **实时搜索**：支持按项目名称、Git 分支名、路径关键词搜索（Cmd+F 聚焦）
-- **框架筛选**：点击框架标签（Vue/React/Angular/HTML）快速过滤
-- **状态筛选**：按运行中、安装中、构建中、压缩中等状态过滤项目
+- **Menu 下拉筛选**：框架类型和运行状态通过 Menu 下拉菜单分组筛选，选中状态实时体现在按钮上
 - **结果统计**：筛选激活时显示匹配项目数 / 总项目数
 
 ### 进程操作
@@ -83,12 +84,13 @@
 - **快速构建**：执行 `build`（或 `border`）脚本，构建成功后自动压缩 dist 为 `dist.zip`
 - **全新构建**：两阶段流水线——删除 `node_modules` → 重装依赖 → 执行构建 → 压缩 dist
 - **重装依赖**：删除 `node_modules` 后重新安装
+- **取消构建**：构建/安装/压缩过程中可点击"取消构建"终止操作，启停按钮独立不受影响
 - **停止进程**：先发送 `SIGINT` 优雅退出，超时后强制终止
 - **云盘集成**：构建并压缩完成后自动在浏览器中打开配置的云盘网站
 
 ### 项目状态
 
-五种细粒度状态，卡片和筛选标签同步显示：
+五种细粒度状态，卡片和筛选菜单同步显示：
 
 | 状态 | 描述 | 颜色 |
 |------|------|------|
@@ -101,7 +103,7 @@
 ### 快捷操作
 
 - **在 Finder 中打开**：直接在 Finder 中定位项目目录
-- **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称
+- **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称。uni-app 项目在菜单顶部额外显示 HBuilderX
 - **在终端中打开**：通过 AppleScript 在 Terminal.app 中打开并 `cd` 到项目目录
 - **移到废纸篓**：安全删除项目（使用 `FileManager.trashItem`），支持从废纸篓恢复
 
@@ -126,6 +128,11 @@
 - 自动滚动开关
 - 日志清除功能
 - 文本可选可复制
+- LazyVStack 懒加载渲染 + 2000 行缓冲区上限，大量日志不卡顿
+
+### 主题模式
+
+支持浅色、深色、跟随系统三种主题，偏好设置持久化到 UserDefaults。
 
 ## 项目结构
 
@@ -137,22 +144,22 @@ Web Project Management/
 │   ├── WebProjectManagementApp.swift          # 应用入口，窗口配置与菜单栏命令
 │   │
 │   ├── Models/                                # 数据模型层
-│   │   ├── Project.swift                      # Project 模型 + PackageManagerType 枚举
+│   │   ├── Project.swift                      # Project 模型 + GitStatus + PackageManagerType 枚举
 │   │   ├── ProjectStatus.swift                # 项目运行状态枚举（5 种状态）
 │   │   └── FrameworkType.swift                # 前端框架类型枚举 + 标识色
 │   │
 │   ├── Core/                                  # 核心业务逻辑层
-│   │   ├── AppState.swift                     # 全局状态管理（@Observable）+ EditorInfo
-│   │   ├── LogStore.swift                     # 独立日志存储（按路径分代追踪）
+│   │   ├── AppState.swift                     # 全局状态管理（@Observable）+ ThemeMode + EditorInfo
+│   │   ├── LogStore.swift                     # 独立日志存储（按路径分代追踪，行缓冲区）
 │   │   ├── ProjectProcessManager.swift        # Actor 进程管理器（AsyncStream 日志流）
-│   │   └── ProjectScanner.swift               # 项目目录扫描器（框架/包管理器识别）
+│   │   └── ProjectScanner.swift               # 项目目录扫描器（框架/包管理器/Git/磁盘占用识别）
 │   │
 │   ├── Views/                                 # SwiftUI 视图层
-│   │   ├── ContentView.swift                  # 主内容视图 + 搜索筛选栏 + 工具栏 + 弹窗
-│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化）+ 操作按钮
-│   │   ├── LogDrawerView.swift                # 底部终端日志面板
+│   │   ├── ContentView.swift                  # 主内容视图 + 搜索筛选 Menu + 工具栏 + 设置 + 弹窗
+│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化）+ Git 状态 + 操作按钮 + 自适应阴影
+│   │   ├── LogDrawerView.swift                # 底部终端日志面板（LazyVStack 渲染）
 │   │   ├── EmptyStateView.swift               # 首次启动引导视图（拖拽/选择目录）
-│   │   └── AnimatedBackgroundView.swift       # 窗口背景色
+│   │   └── AppBackgroundView.swift            # 窗口背景色
 │   │
 │   └── Assets.xcassets/                       # 资源文件
 │       ├── AppIcon.appiconset/                # 应用图标
@@ -160,12 +167,15 @@ Web Project Management/
 │       ├── vue.imageset/                      # Vue 框架图标
 │       ├── react.imageset/                    # React 框架图标
 │       ├── angular.imageset/                  # Angular 框架图标
+│       ├── uniapp.imageset/                   # uni-app 框架图标
+│       ├── uniappx.imageset/                  # uni-app x 框架图标
+│       ├── weChatMiniProgram.imageset/        # 微信小程序图标
 │       ├── html.imageset/                     # HTML 静态项目图标
-│       ├── unknown.imageset/                  # 未知类型图标
 │       └── gitbranch.imageset/                # Git 分支图标
 │
 ├── .gitignore
-└── README.md
+├── README.md
+└── CHANGELOG.md
 ```
 
 ## 构建与运行
@@ -222,13 +232,16 @@ open "Web Project Management.xcodeproj"
 | `savedRootDirectory` | `String` | 项目集根目录路径 |
 | `savedCloudDriveURL` | `String` | 云盘网站 URL |
 | `savedPinnedProjectIDs` | `Data` (JSON) | 置顶项目的绝对路径集合 |
+| `savedThemeMode` | `String` | 主题模式（light/dark/system） |
 
 ## 性能优化策略
 
 本应用在 SwiftUI macOS 开发中实施了多项性能优化：
 
 - **日志分离渲染**：`LogStore` 独立于 `projects` 数组，日志追加不触发项目网格重算
+- **行缓冲区 + LazyVStack**：日志按行存储为 `LogEntry` 数组，使用 `LazyVStack` + `ForEach` 懒加载渲染，2000 行上限自动裁剪旧行
 - **Equatable 卡片**：`ProjectCardView` 通过 `Equatable` + `.equatable()` 跳过无关属性变化引起的 body 重算
+- **自适应卡片阴影**：使用 `Color.primary.opacity(0.08)` 阴影，浅色模式下为暗色阴影，深色模式下为微弱亮色光晕。阴影前添加 `.compositingGroup()` 扁平化视图层级，避免多卡片场景下的渲染卡顿
 - **避免高开销修饰符**：不使用 `.ultraThinMaterial`（GPU 密集）、不使用 `repeatForever` 动画（窗口切换时卡顿）、静态阴影替代动态阴影
 - **非动画滚动**：日志面板使用非动画 `scrollTo`，避免快速日志块堆积导致动画栈溢出
 - **轮询消费**：UI 以 200ms 间隔轮询 `LogStore`，而非直接消费 `AsyncStream`，避免双消费者竞争

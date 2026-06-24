@@ -8,7 +8,7 @@ struct BottomLogPanel: View {
     let logStore: LogStore
     let appState: AppState
 
-    @State private var displayText: String = ""
+    @State private var displayEntries: [LogEntry] = []
     @State private var isAutoScroll = true
 
     var body: some View {
@@ -46,7 +46,7 @@ struct BottomLogPanel: View {
 
                 // 清除日志
                 PanelIconButton(icon: "trash", tooltip: "清除日志") {
-                    displayText = ""
+                    displayEntries = []
                     logStore.clear(for: project.path.path)
                 }
 
@@ -61,20 +61,34 @@ struct BottomLogPanel: View {
             .padding(.vertical, 8)
             .background(Color(red: 0.16, green: 0.17, blue: 0.19))
 
-            // 日志内容（深色终端风格）
+            // 日志内容（LazyVStack 惰性渲染，仅创建可见行的视图）
             ScrollViewReader { proxy in
                 ScrollView {
-                    Text(displayText.isEmpty ? "等待输出..." : displayText)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(displayText.isEmpty ? Color.gray : Color(red: 0.88, green: 0.9, blue: 0.88))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
+                    if displayEntries.isEmpty {
+                        Text("等待输出...")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(Color.gray)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(12)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(displayEntries) { entry in
+                                Text(entry.text)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .foregroundStyle(Color(red: 0.88, green: 0.9, blue: 0.88))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 1)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
 
                     Color.clear.frame(height: 1).id("bottom")
                 }
                 .background(Color(red: 0.11, green: 0.12, blue: 0.14))
-                .onChange(of: displayText) { _, _ in
+                .onChange(of: displayEntries.count) { _, _ in
                     if isAutoScroll {
                         proxy.scrollTo("bottom", anchor: .bottom)
                     }
@@ -88,12 +102,13 @@ struct BottomLogPanel: View {
         )
         .task(id: project.id) {
             let path = project.path.path
-            displayText = logStore.log(for: path)
+            displayEntries = logStore.entries(for: path)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(200))
-                let current = logStore.log(for: path)
-                if current != displayText {
-                    displayText = current
+                let current = logStore.entries(for: path)
+                if current.count != displayEntries.count
+                    || current.last?.id != displayEntries.last?.id {
+                    displayEntries = current
                 }
             }
         }

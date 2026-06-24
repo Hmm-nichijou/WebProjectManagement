@@ -11,7 +11,6 @@ actor ProjectProcessManager {
     /// 单个项目的进程会话，仅在 actor 内部使用
     private final class Session {
         var process: Process?
-        var log: String = ""
         var logContinuation: AsyncStream<String>.Continuation?
 
         deinit {
@@ -108,7 +107,6 @@ actor ProjectProcessManager {
         let distZipURL = project.path.appendingPathComponent("dist.zip")
         clearDirectory(distURL)
         try? FileManager.default.removeItem(at: distZipURL)
-        session.log += "[清理] 已删除旧 dist 目录和 dist.zip\n"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -179,7 +177,6 @@ actor ProjectProcessManager {
         clearDirectory(project.path.appendingPathComponent("node_modules"))
         clearDirectory(project.path.appendingPathComponent("dist"))
         try? FileManager.default.removeItem(at: project.path.appendingPathComponent("dist.zip"))
-        session.log += "[清理] 已删除 node_modules、dist、dist.zip\n"
 
         // 预计算环境变量（安装和构建共用）
         let env = buildEnvironment()
@@ -297,7 +294,6 @@ actor ProjectProcessManager {
         // 先删除旧的 node_modules
         let nodeModulesURL = project.path.appendingPathComponent("node_modules")
         clearDirectory(nodeModulesURL)
-        session.log += "[清理] 已删除旧 node_modules\n"
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -464,7 +460,6 @@ actor ProjectProcessManager {
 
     /// 向日志追加内容并推送给流订阅者
     private func appendLog(_ text: String, to session: Session) {
-        session.log += text
         session.logContinuation?.yield(text)
     }
 

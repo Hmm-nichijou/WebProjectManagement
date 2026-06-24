@@ -1,6 +1,32 @@
 import SwiftUI
 import AppKit
 
+// MARK: - 主题模式
+
+enum ThemeMode: String, CaseIterable, Identifiable, Sendable {
+    case light
+    case dark
+    case system
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .light: return "浅色"
+        case .dark: return "深色"
+        case .system: return "跟随系统"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .light: return .light
+        case .dark: return .dark
+        case .system: return nil
+        }
+    }
+}
+
 // MARK: - 编辑器信息
 
 struct EditorInfo: Identifiable, Sendable, Equatable {
@@ -47,6 +73,19 @@ final class AppState {
     /// 是否正在扫描
     var isScanning: Bool = false
 
+    /// 是否正在执行批量操作（删除构建/依赖）
+    var isBatchOperating: Bool = false
+
+    /// Toast 通知消息（非 nil 时自动显示并定时消失）
+    var toastMessage: String? = nil
+
+    /// 主题模式（浅色/深色/跟随系统）
+    var themeMode: ThemeMode = .system {
+        didSet {
+            UserDefaults.standard.set(themeMode.rawValue, forKey: savedThemeKey)
+        }
+    }
+
     /// 是否为首次启动（无已保存目录）
     var isFirstLaunch: Bool = true
 
@@ -74,6 +113,9 @@ final class AppState {
     /// 系统检测到的已安装编辑器
     var detectedEditors: [EditorInfo] = []
 
+    /// HBuilderX 编辑器信息（仅 uniapp 项目使用）
+    var hbuilderxInfo: EditorInfo? = nil
+
     /// 需要检测的编辑器 bundle ID 列表
     private static let editorBundleIDs = [
         "com.microsoft.VSCode",
@@ -83,10 +125,17 @@ final class AppState {
         "com.panic.Nova",
     ]
 
+    /// HBuilderX bundle ID 列表
+    private static let hbuilderxBundleIDs = [
+        "io.dcloud.HBuilderX",
+        "io.dcloud.HBuilderXAlpha",
+    ]
+
     // MARK: - UserDefaults 持久化键名
     private let savedPathKey = "savedRootDirectory"
     private let savedCloudDriveKey = "savedCloudDriveURL"
     private let savedPinnedKey = "savedPinnedProjectIDs"
+    private let savedThemeKey = "savedThemeMode"
 
     // MARK: - 初始化
 
@@ -96,6 +145,10 @@ final class AppState {
         if let pinnedData = UserDefaults.standard.data(forKey: savedPinnedKey),
            let pinned = try? JSONDecoder().decode(Set<String>.self, from: pinnedData) {
             pinnedProjectPaths = pinned
+        }
+        if let themeStr = UserDefaults.standard.string(forKey: savedThemeKey),
+           let mode = ThemeMode(rawValue: themeStr) {
+            themeMode = mode
         }
         Task { await detectEditors() }
     }
@@ -279,6 +332,7 @@ final class AppState {
         logStreams[path] = stream
 
         projects[index].status = .running
+        logViewingProjectID = project.id
 
         // 后台消费日志流 → 写入 LogStore（不触发 projects 数组变化）
         Task { [weak self] in
@@ -295,6 +349,10 @@ final class AppState {
         if let index = projects.firstIndex(where: { $0.id == project.id }) {
             projects[index].status = .idle
         }
+        // 停止时自动关闭该项目的日志面板
+        if logViewingProjectID == project.id {
+            logViewingProjectID = nil
+        }
     }
 
     /// 执行构建
@@ -304,6 +362,7 @@ final class AppState {
 
         let path = project.path.path
         logStore.clear(for: path)
+        logViewingProjectID = project.id
 
         let stream = await processManager.build(
             project: project,
@@ -338,6 +397,7 @@ final class AppState {
 
         let path = project.path.path
         logStore.clear(for: path)
+        logViewingProjectID = project.id
 
         let stream = await processManager.cleanBuild(
             project: project,
@@ -371,6 +431,7 @@ final class AppState {
 
         let path = project.path.path
         logStore.clear(for: path)
+        logViewingProjectID = project.id
 
         let stream = await processManager.reinstall(project: project)
         logStreams[path] = stream
@@ -421,6 +482,15 @@ final class AppState {
             }
         }
         detectedEditors = found
+
+        // 检测 HBuilderX
+        hbuilderxInfo = nil
+        for bundleID in Self.hbuilderxBundleIDs {
+            if let info = await findEditorInfo(bundleID: bundleID) {
+                hbuilderxInfo = info
+                break
+            }
+        }
     }
 
     /// 通过 Spotlight 查找应用，返回实际显示名称和路径
@@ -499,29 +569,52 @@ final class AppState {
     }
 
     /// 批量删除所有项目的构建产物（dist 目录和 dist.zip）
-    func deleteAllBuilds() {
-        let fm = FileManager.default
-        for project in projects {
-            let dist = project.path.appendingPathComponent("dist")
-            let zip = project.path.appendingPathComponent("dist.zip")
-            if fm.fileExists(atPath: dist.path) {
-                try? fm.removeItem(at: dist)
+    func deleteAllBuilds() async {
+        isBatchOperating = true
+        let projectPaths = projects.map(\.path)
+
+        let deleted = await Task.detached {
+            let fm = FileManager.default
+            var count = 0
+            for path in projectPaths {
+                let dist = path.appendingPathComponent("dist")
+                let zip = path.appendingPathComponent("dist.zip")
+                if fm.fileExists(atPath: dist.path) {
+                    try? fm.removeItem(at: dist)
+                    count += 1
+                }
+                if fm.fileExists(atPath: zip.path) {
+                    try? fm.removeItem(at: zip)
+                    count += 1
+                }
             }
-            if fm.fileExists(atPath: zip.path) {
-                try? fm.removeItem(at: zip)
-            }
-        }
+            return count
+        }.value
+
+        isBatchOperating = false
+        toastMessage = "已删除 \(deleted) 个构建产物"
     }
 
     /// 批量删除所有项目的依赖（node_modules）
-    func deleteAllDependencies() {
-        let fm = FileManager.default
-        for project in projects {
-            let nm = project.path.appendingPathComponent("node_modules")
-            if fm.fileExists(atPath: nm.path) {
-                try? fm.removeItem(at: nm)
+    func deleteAllDependencies() async {
+        isBatchOperating = true
+        let projectPaths = projects.map(\.path)
+
+        let deleted = await Task.detached {
+            let fm = FileManager.default
+            var count = 0
+            for path in projectPaths {
+                let nm = path.appendingPathComponent("node_modules")
+                if fm.fileExists(atPath: nm.path) {
+                    try? fm.removeItem(at: nm)
+                    count += 1
+                }
             }
-        }
+            return count
+        }.value
+
+        isBatchOperating = false
+        toastMessage = "已删除 \(deleted) 个依赖目录"
     }
 
     // MARK: - 应用退出清理

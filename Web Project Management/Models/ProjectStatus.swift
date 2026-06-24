@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - 项目运行状态
 
-enum ProjectStatus: Sendable, CaseIterable {
+enum ProjectStatus: Sendable {
     case idle         // 空闲/停止
     case running      // 正在运行
     case installing   // 安装依赖中
@@ -20,16 +20,7 @@ enum ProjectStatus: Sendable, CaseIterable {
         }
     }
 
-    /// 筛选图标颜色
-    nonisolated var iconColor: Color {
-        switch self {
-        case .idle: return .gray
-        case .running: return .green
-        case .installing, .building, .compressing: return .blue
-        }
-    }
-
-    /// 状态指示灯颜色
+    /// 状态颜色（筛选图标和状态指示灯共用）
     nonisolated var color: Color {
         switch self {
         case .idle: return .gray

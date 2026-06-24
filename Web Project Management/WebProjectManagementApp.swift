@@ -11,6 +11,7 @@ struct WebProjectManagementApp: App {
         WindowGroup {
             ContentView(appState: appState)
                 .frame(minWidth: 720, minHeight: 500)
+                .preferredColorScheme(appState.themeMode.colorScheme)
         }
         .defaultSize(width: 1100, height: 720)
         .commands {

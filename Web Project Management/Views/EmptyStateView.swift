@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 // MARK: - 空状态引导视图
 // 首次打开应用时显示的大面积虚线拖拽区域，引导用户选择或拖拽项目目录

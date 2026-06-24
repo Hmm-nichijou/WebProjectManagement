@@ -46,7 +46,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            AnimatedBackgroundView()
+            AppBackgroundView()
 
             // 隐藏按钮：保留 Cmd+F 聚焦搜索框的快捷键
             Button("") { isSearchFocused = true }
@@ -98,7 +98,7 @@ struct ContentView: View {
             titleVisibility: .visible
         ) {
             Button("删除", role: .destructive) {
-                appState.deleteAllBuilds()
+                Task { await appState.deleteAllBuilds() }
             }
             Button("取消", role: .cancel) {}
         }
@@ -108,10 +108,30 @@ struct ContentView: View {
             titleVisibility: .visible
         ) {
             Button("删除", role: .destructive) {
-                appState.deleteAllDependencies()
+                Task { await appState.deleteAllDependencies() }
             }
             Button("取消", role: .cancel) {}
         }
+        .overlay {
+            if appState.isBatchOperating {
+                BatchOperationOverlay()
+            }
+        }
+        .overlay(alignment: .top) {
+            if let message = appState.toastMessage {
+                ToastView(message: message)
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task(id: message) {
+                        try? await Task.sleep(for: .seconds(2.5))
+                        withAnimation(.easeOut(duration: 0.3)) {
+                            appState.toastMessage = nil
+                        }
+                    }
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: appState.isBatchOperating)
+        .animation(.easeInOut(duration: 0.25), value: appState.toastMessage)
     }
 
     // MARK: - 项目网格内容
@@ -122,15 +142,27 @@ struct ContentView: View {
             if let root = appState.rootDirectory {
                 HStack(spacing: 12) {
                     Image(systemName: "folder.fill")
-                        .foregroundStyle(Color(red: 0.4, green: 0.4, blue: 0.45))
+                        .foregroundStyle(.secondary)
 
                     Text(root.path)
                         .font(.caption)
-                        .foregroundStyle(Color(red: 0.4, green: 0.4, blue: 0.45))
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
                     Spacer()
+
+                    // 总磁盘占用
+                    let totalUsage = appState.projects.reduce(Int64(0)) { $0 + $1.totalDiskUsage }
+                    if totalUsage > 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "internaldrive")
+                                .font(.caption2)
+                            Text(infoFormatDiskSize(totalUsage))
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.secondary)
+                    }
 
                     if hasActiveFilters {
                         Text("\(filteredProjects.count) / \(appState.projects.count) 个项目")
@@ -139,12 +171,12 @@ struct ContentView: View {
                     } else {
                         Text("\(appState.projects.count) 个项目")
                             .font(.caption)
-                            .foregroundStyle(Color(red: 0.5, green: 0.5, blue: 0.55))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 10)
-                .background(Color(red: 0.93, green: 0.93, blue: 0.94))
+                .background(Color(.controlBackgroundColor))
 
                 // 搜索与筛选栏
                 SearchFilterBar(
@@ -262,7 +294,7 @@ private struct ScanningOverlay: View {
                     .foregroundStyle(.secondary)
             }
             .padding(32)
-            .background(Color(red: 0.96, green: 0.96, blue: 0.97).opacity(0.95), in: RoundedRectangle(cornerRadius: 16))
+            .background(Color(.controlBackgroundColor).opacity(0.95), in: RoundedRectangle(cornerRadius: 16))
         }
     }
 }
@@ -270,7 +302,7 @@ private struct ScanningOverlay: View {
 // MARK: - 设置弹窗
 
 private struct SettingsSheet: View {
-    let appState: AppState
+    @Bindable var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var draftURL: String = ""
 
@@ -279,6 +311,19 @@ private struct SettingsSheet: View {
             Text("设置")
                 .font(.title2)
                 .fontWeight(.semibold)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("外观模式")
+                    .font(.headline)
+
+                Picker("", selection: $appState.themeMode) {
+                    ForEach(ThemeMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(minWidth: 360)
+            }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("云盘网站")
@@ -310,7 +355,7 @@ private struct SettingsSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 440, height: 220)
+        .frame(width: 440, height: 280)
         .onAppear {
             draftURL = appState.cloudDriveURL
         }
@@ -417,7 +462,7 @@ private struct SearchFilterBar: View {
             .padding(.vertical, 7)
             .background(
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(red: 0.90, green: 0.90, blue: 0.92))
+                    .fill(Color.primary.opacity(0.06))
             )
             .frame(maxWidth: 280)
 
@@ -425,32 +470,69 @@ private struct SearchFilterBar: View {
                 .frame(height: 20)
                 .opacity(0.4)
 
-            // 框架筛选
-            ForEach(FrameworkType.allCases, id: \.self) { fw in
-                FilterChip(
-                    label: fw.rawValue,
-                    isActive: frameworkFilter == fw,
-                    activeColor: fw.accentColor
-                ) {
-                    frameworkFilter = frameworkFilter == fw ? nil : fw
+            // 框架类型筛选菜单
+            Menu {
+                Button("全部") { frameworkFilter = nil }
+                Divider()
+                ForEach(FrameworkType.allCases.filter { $0 != .unknown }, id: \.self) { fw in
+                    Button {
+                        frameworkFilter = frameworkFilter == fw ? nil : fw
+                    } label: {
+                        if frameworkFilter == fw {
+                            Label(fw.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(fw.rawValue)
+                        }
+                    }
                 }
-            }
-
-            Divider()
-                .frame(height: 20)
-                .opacity(0.4)
-
-            // 状态筛选
-            ForEach([ProjectStatus.running, .installing, .building, .compressing], id: \.self) { status in
-                FilterChip(
-                    label: status.description,
-                    isActive: statusFilter == status,
-                    activeColor: status.iconColor,
-                    icon: status.iconName
-                ) {
-                    statusFilter = statusFilter == status ? nil : status
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "square.grid.2x2")
+                        .font(.caption2)
+                    Text(frameworkFilter?.rawValue ?? "项目类型")
+                        .font(.caption)
+                        .lineLimit(1)
                 }
+                .foregroundStyle(frameworkFilter != nil ? frameworkFilter!.accentColor : Color.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(frameworkFilter != nil ? frameworkFilter!.accentColor.opacity(0.1) : Color.primary.opacity(0.05))
+                )
             }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+
+            // 运行状态筛选菜单
+            Menu {
+                Button("全部") { statusFilter = nil }
+                Divider()
+                ForEach([ProjectStatus.running, .installing, .building, .compressing], id: \.self) { status in
+                    Button {
+                        statusFilter = statusFilter == status ? nil : status
+                    } label: {
+                        Label(status.description, systemImage: statusFilter == status ? "checkmark" : status.iconName)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: statusFilter?.iconName ?? "circle.dashed")
+                        .font(.caption2)
+                    Text(statusFilter?.description ?? "运行状态")
+                        .font(.caption)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(statusFilter != nil ? statusFilter!.color : Color.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(statusFilter != nil ? statusFilter!.color.opacity(0.1) : Color.primary.opacity(0.05))
+                )
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
 
             Spacer()
 
@@ -474,47 +556,66 @@ private struct SearchFilterBar: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(Color(red: 0.945, green: 0.945, blue: 0.955))
+        .background(Color(.windowBackgroundColor))
     }
 }
 
-// MARK: - 筛选标签
+// MARK: - 批量操作加载覆盖层
 
-private struct FilterChip: View {
-    let label: String
-    let isActive: Bool
-    var activeColor: Color = .accentColor
-    var icon: String?
-    let action: () -> Void
-
-    @State private var isHovering = false
-
+private struct BatchOperationOverlay: View {
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 3) {
-                if let icon {
-                    Image(systemName: icon)
-                        .font(.caption2)
-                }
-                Text(label)
-                    .font(.caption2)
+        ZStack {
+            Color.black.opacity(0.15)
+                .ignoresSafeArea()
+
+            VStack(spacing: 14) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("正在执行批量操作...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .foregroundStyle(isActive ? activeColor : Color(red: 0.45, green: 0.45, blue: 0.5))
+            .padding(36)
             .background(
-                Capsule()
-                    .fill(
-                        isActive ? activeColor.opacity(0.12)
-                        : (isHovering ? Color.gray.opacity(0.08) : Color.clear)
-                    )
-            )
-            .overlay(
-                Capsule()
-                    .stroke(isActive ? activeColor.opacity(0.25) : Color.clear, lineWidth: 1)
+                Color(.controlBackgroundColor).opacity(0.95),
+                in: RoundedRectangle(cornerRadius: 16)
             )
         }
-        .buttonStyle(.plain)
-        .onHover { hovering in isHovering = hovering }
+        .allowsHitTesting(true)
     }
+}
+
+// MARK: - Toast 通知
+
+private struct ToastView: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+
+            Text(message)
+                .font(.caption)
+                .fontWeight(.medium)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(.controlBackgroundColor))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        )
+    }
+}
+
+// MARK: - 磁盘大小格式化（信息栏用）
+
+private func infoFormatDiskSize(_ bytes: Int64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.allowedUnits = [.useKB, .useMB, .useGB]
+    formatter.countStyle = .file
+    formatter.includesUnit = true
+    return formatter.string(fromByteCount: bytes)
 }

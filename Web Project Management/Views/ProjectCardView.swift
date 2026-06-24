@@ -17,6 +17,7 @@ struct ProjectCardView: View, Equatable {
         lhs.project.id == rhs.project.id &&
         lhs.project.status == rhs.project.status &&
         lhs.project.name == rhs.project.name &&
+        lhs.project.gitStatus == rhs.project.gitStatus &&
         lhs.isPinned == rhs.isPinned
     }
 
@@ -26,14 +27,16 @@ struct ProjectCardView: View, Equatable {
             cardBody
             cardActions
         }
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color(.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(
-                    isPinned ? Color.accentColor.opacity(0.3) : Color.black.opacity(0.06),
+                    isPinned ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06),
                     lineWidth: isPinned ? 1.5 : 1
                 )
         )
+        .compositingGroup()
+        .shadow(color: Color.primary.opacity(0.08), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - 卡片头部
@@ -42,7 +45,7 @@ struct ProjectCardView: View, Equatable {
         HStack(spacing: 8) {
             Text(project.name)
                 .font(.headline)
-                .foregroundStyle(Color(red: 0.1, green: 0.1, blue: 0.12))
+                .foregroundStyle(.primary)
                 .lineLimit(1)
 
             Spacer()
@@ -69,15 +72,6 @@ struct ProjectCardView: View, Equatable {
                 if let pm = project.packageManager {
                     PackageManagerTag(type: pm)
                 }
-
-                if project.hasNodeModules {
-                    Text("node_modules")
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.green.opacity(0.12), in: Capsule())
-                        .foregroundStyle(Color(red: 0.15, green: 0.55, blue: 0.25))
-                }
             }
 
             if let branch = project.gitBranch {
@@ -86,70 +80,117 @@ struct ProjectCardView: View, Equatable {
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(width: 12, height: 12)
-                        .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.5))
+                        .foregroundStyle(.secondary)
                     Text(branch)
                         .font(.caption)
                         .lineLimit(1)
+                        .foregroundStyle(.secondary)
+
+                    // Git 状态指示（工作区干净时不显示）
+                    if let gs = project.gitStatus, !(gs.isClean && !gs.hasUpstreamDiff) {
+                        HStack(spacing: 8) {
+                            if gs.modified > 0 {
+                                HStack(spacing: 1) {
+                                    Image(systemName: "pencil.line")
+                                    Text("\(gs.modified)")
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                            }
+                            if gs.untracked > 0 {
+                                HStack(spacing: 1) {
+                                    Image(systemName: "questionmark")
+                                    Text("\(gs.untracked)")
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.red.opacity(0.8))
+                            }
+                            if gs.ahead > 0 {
+                                HStack(spacing: 1) {
+                                    Image(systemName: "arrow.up")
+                                    Text("\(gs.ahead)")
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                            }
+                            if gs.behind > 0 {
+                                HStack(spacing: 1) {
+                                    Image(systemName: "arrow.down")
+                                    Text("\(gs.behind)")
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.blue)
+                            }
+                        }
+                    }
                 }
-                .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.5))
-                .help(project.path.path)
+                .help(gitStatusTooltip)
             } else {
                 Text(project.path.path)
                     .font(.caption)
-                    .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.5))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
-            }
-
-            if project.hasScripts {
-                let scriptNames = project.scripts.keys.sorted().prefix(5)
-                Text("Scripts: \(scriptNames.joined(separator: ", "))")
-                    .font(.caption2)
-                    .foregroundStyle(Color(red: 0.4, green: 0.4, blue: 0.45))
-                    .lineLimit(1)
-            } else {
-                Text("无可用 scripts")
-                    .font(.caption2)
-                    .foregroundStyle(Color(red: 0.55, green: 0.55, blue: 0.6))
             }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 10)
     }
 
+    // MARK: - Git 状态 Tooltip
+
+    private var gitStatusTooltip: String {
+        var parts: [String] = [project.path.path]
+        if let gs = project.gitStatus {
+            var statusParts: [String] = []
+            if gs.isClean { statusParts.append("工作区干净") }
+            if gs.modified > 0 { statusParts.append("修改 \(gs.modified)") }
+            if gs.added > 0 { statusParts.append("暂存 \(gs.added)") }
+            if gs.untracked > 0 { statusParts.append("未跟踪 \(gs.untracked)") }
+            if gs.ahead > 0 { statusParts.append("领先远程 \(gs.ahead) 个提交") }
+            if gs.behind > 0 { statusParts.append("落后远程 \(gs.behind) 个提交") }
+            parts.append(statusParts.joined(separator: "，"))
+        }
+        return parts.joined(separator: "\n")
+    }
+
     // MARK: - 操作按钮栏
 
     private var cardActions: some View {
         HStack(spacing: 6) {
-            if project.status == .running {
-                ActionButton(icon: "stop.fill", label: "停止", tint: .red) {
-                    Task { await appState.stopProject(project) }
+            // uniapp/uniappx 项目不显示运行和构建按钮
+            if !project.frameworkType.isUniApp {
+                // 启停按钮：仅关注运行状态，不受构建状态影响
+                if project.status == .running {
+                    ActionButton(icon: "stop.fill", label: "停止", tint: .red) {
+                        Task { await appState.stopProject(project) }
+                    }
+                } else {
+                    ActionButton(icon: "play.fill", label: "运行", tint: .green) {
+                        Task { await appState.startProject(project) }
+                    }
                 }
-            } else if project.status.isBusy {
-                ActionButton(icon: "hourglass", label: project.status.description, tint: .blue) {
-                }
-                .disabled(true)
-            } else {
-                ActionButton(icon: "play.fill", label: "运行", tint: .green) {
-                    Task { await appState.startProject(project) }
-                }
-            }
 
-            if project.scripts["build"] != nil || project.scripts["border"] != nil {
-                ActionButton(icon: "hammer.fill", label: "构建", tint: .orange) {
-                    showBuildOptions = true
-                }
-                .disabled(project.status.isBusy)
-                .confirmationDialog("选择构建方式", isPresented: $showBuildOptions, titleVisibility: .visible) {
-                    Button("快速构建") {
-                        Task { await appState.buildProject(project) }
+                // 构建按钮：忙碌时变为取消按钮
+                if project.status.isBusy {
+                    ActionButton(icon: "xmark.circle.fill", label: "取消构建", tint: .red) {
+                        Task { await appState.stopProject(project) }
                     }
-                    Button("全新构建") {
-                        Task { await appState.cleanBuildProject(project) }
+                } else if project.scripts["build"] != nil || project.scripts["border"] != nil {
+                    ActionButton(icon: "hammer.fill", label: "构建", tint: .orange) {
+                        showBuildOptions = true
                     }
-                    Button("取消", role: .cancel) {}
-                } message: {
-                    Text("全新构建会删除 node_modules 并重新安装依赖，耗时较长")
+                    .confirmationDialog("选择构建方式", isPresented: $showBuildOptions, titleVisibility: .visible) {
+                        Button("快速构建") {
+                            Task { await appState.buildProject(project) }
+                        }
+                        Button("全新构建") {
+                            Task { await appState.cleanBuildProject(project) }
+                        }
+                        Button("取消", role: .cancel) {}
+                    } message: {
+                        Text("全新构建会删除 node_modules 并重新安装依赖，耗时较长")
+                    }
                 }
             }
 
@@ -176,8 +217,21 @@ struct ProjectCardView: View, Equatable {
                     Label("在 Finder 中打开", systemImage: "folder")
                 }
 
-                if !appState.detectedEditors.isEmpty {
+                if !appState.detectedEditors.isEmpty || (project.frameworkType.isUniApp && appState.hbuilderxInfo != nil) {
                     Menu("在编辑器中打开") {
+                        // uni-app 项目在顶部显示 HBuilderX
+                        if project.frameworkType.isUniApp, let hbuilderx = appState.hbuilderxInfo {
+                            Button {
+                                appState.openInEditor(project, editor: hbuilderx)
+                            } label: {
+                                Label {
+                                    Text(hbuilderx.displayName)
+                                } icon: {
+                                    hbuilderx.appIcon
+                                }
+                            }
+                            Divider()
+                        }
                         ForEach(appState.detectedEditors) { editor in
                             Button {
                                 appState.openInEditor(project, editor: editor)
@@ -197,6 +251,7 @@ struct ProjectCardView: View, Equatable {
                 } label: {
                     Label("在终端中打开", systemImage: "terminal")
                 }
+
 
                 Divider()
 
@@ -247,14 +302,14 @@ private struct StatusIndicator: View {
     let status: ProjectStatus
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 2) {
             Circle()
                 .fill(status.color)
                 .frame(width: 8, height: 8)
 
             Text(status.description)
                 .font(.caption2)
-                .foregroundStyle(Color(red: 0.45, green: 0.45, blue: 0.5))
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -265,11 +320,13 @@ private struct FrameworkTag: View {
     let type: FrameworkType
 
     var body: some View {
-        Image(type.svgFilename, bundle: .main)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 16, height: 16)
-            .help(type.rawValue)
+        if type != .unknown {
+            Image(type.svgFilename, bundle: .main)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 16, height: 16)
+                .help(type.rawValue)
+        }
     }
 }
 
