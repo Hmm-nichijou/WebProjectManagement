@@ -41,6 +41,7 @@ struct ProjectScanner: Sendable {
         var frameworkType: FrameworkType = .unknown
         var scripts: [String: String] = [:]
         var packageManager: PackageManagerType? = nil
+        let hasNodeModules = fm.fileExists(atPath: url.appendingPathComponent("node_modules").path)
 
         // 检测包管理器类型（通过锁文件）
         packageManager = detectPackageManager(at: url)
@@ -87,6 +88,7 @@ struct ProjectScanner: Sendable {
             frameworkType: frameworkType,
             packageManager: packageManager,
             scripts: scripts,
+            hasNodeModules: hasNodeModules,
             gitBranch: gitBranch,
             gitStatus: gitStatus,
             nodeModulesSize: diskUsage.nodeModules,

@@ -18,6 +18,7 @@ struct ProjectCardView: View, Equatable {
         lhs.project.status == rhs.project.status &&
         lhs.project.name == rhs.project.name &&
         lhs.project.gitStatus == rhs.project.gitStatus &&
+        lhs.project.hasNodeModules == rhs.project.hasNodeModules &&
         lhs.isPinned == rhs.isPinned
     }
 
@@ -71,6 +72,11 @@ struct ProjectCardView: View, Equatable {
 
                 if let pm = project.packageManager {
                     PackageManagerTag(type: pm)
+                }
+
+                // node_modules 安装状态标签（仅已安装时显示）
+                if project.hasNodeModules {
+                    NodeModulesTag()
                 }
             }
 
@@ -158,8 +164,8 @@ struct ProjectCardView: View, Equatable {
 
     private var cardActions: some View {
         HStack(spacing: 6) {
-            // uniapp/uniappx 项目不显示运行和构建按钮
-            if !project.frameworkType.isUniApp {
+            // unknown 和微信小程序项目不显示运行和构建按钮
+            if project.frameworkType.supportsRunBuild {
                 // 启停按钮：仅关注运行状态，不受构建状态影响
                 if project.status == .running {
                     ActionButton(icon: "stop.fill", label: "停止", tint: .red) {
@@ -217,7 +223,9 @@ struct ProjectCardView: View, Equatable {
                     Label("在 Finder 中打开", systemImage: "folder")
                 }
 
-                if !appState.detectedEditors.isEmpty || (project.frameworkType.isUniApp && appState.hbuilderxInfo != nil) {
+                if !appState.detectedEditors.isEmpty
+                    || (project.frameworkType.isUniApp && appState.hbuilderxInfo != nil)
+                    || (project.frameworkType == .wechatMiniProgram && appState.wechatDevToolsInfo != nil) {
                     Menu("在编辑器中打开") {
                         // uni-app 项目在顶部显示 HBuilderX
                         if project.frameworkType.isUniApp, let hbuilderx = appState.hbuilderxInfo {
@@ -228,6 +236,19 @@ struct ProjectCardView: View, Equatable {
                                     Text(hbuilderx.displayName)
                                 } icon: {
                                     hbuilderx.appIcon
+                                }
+                            }
+                            Divider()
+                        }
+                        // 微信小程序项目在顶部显示微信开发者工具
+                        if project.frameworkType == .wechatMiniProgram, let devtools = appState.wechatDevToolsInfo {
+                            Button {
+                                appState.openInEditor(project, editor: devtools)
+                            } label: {
+                                Label {
+                                    Text(devtools.displayName)
+                                } icon: {
+                                    devtools.appIcon
                                 }
                             }
                             Divider()
@@ -343,6 +364,20 @@ private struct PackageManagerTag: View {
             .padding(.vertical, 3)
             .background(type.tagBackgroundColor, in: Capsule())
             .foregroundStyle(type.tagTextColor)
+    }
+}
+
+// MARK: - node_modules 标签
+
+private struct NodeModulesTag: View {
+    var body: some View {
+        Text("node_modules")
+            .font(.caption2)
+            .fontWeight(.medium)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.green.opacity(0.15), in: Capsule())
+            .foregroundStyle(Color.green)
     }
 }
 

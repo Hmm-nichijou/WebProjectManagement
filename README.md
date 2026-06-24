@@ -65,8 +65,9 @@
 ### 项目管理
 
 - **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json`、`index.html` 或特征文件的项目
-- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），uni-app / uni-app x 项目（基于 `manifest.json` + `pages.json` 特征文件），微信小程序项目（基于 `miniprogram/pages/*.wxml`），以及 HTML 静态项目
+- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），uni-app / uni-app x 项目（基于 `manifest.json` + `pages.json` 特征文件），微信小程序项目（基于 `miniprogram/pages/*.wxml`），以及 HTML 静态项目。unknown 和微信小程序类型隐藏运行和构建按钮
 - **包管理器检测**：通过锁文件（`package-lock.json`、`pnpm-lock.yaml`、`yarn.lock`）自动识别 npm/pnpm/yarn
+- **node_modules 安装标签**：已安装 node_modules 的项目在卡片上显示绿色胶囊标签，未安装则不显示
 - **Git 集成**：检测并展示当前分支名和工作区状态（修改/未跟踪/ahead/behind），工作区干净时不显示状态图标
 - **磁盘占用统计**：信息栏汇总显示所有项目的 node_modules、dist、dist.zip 总占用
 - **项目置顶**：置顶状态按绝对路径持久化到 UserDefaults，重新扫描或切换目录后不丢失
@@ -103,7 +104,7 @@
 ### 快捷操作
 
 - **在 Finder 中打开**：直接在 Finder 中定位项目目录
-- **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称。uni-app 项目在菜单顶部额外显示 HBuilderX
+- **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称。uni-app 项目在菜单顶部额外显示 HBuilderX，微信小程序项目在顶部额外显示微信开发者工具（需系统已安装）
 - **在终端中打开**：通过 AppleScript 在 Terminal.app 中打开并 `cd` 到项目目录
 - **移到废纸篓**：安全删除项目（使用 `FileManager.trashItem`），支持从废纸篓恢复
 

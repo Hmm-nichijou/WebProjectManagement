@@ -56,6 +56,7 @@ struct Project: Identifiable, Sendable {
     let frameworkType: FrameworkType
     let packageManager: PackageManagerType?
     let scripts: [String: String]
+    let hasNodeModules: Bool
     let gitBranch: String?
     let gitStatus: GitStatus?
     let nodeModulesSize: Int64
@@ -76,6 +77,7 @@ struct Project: Identifiable, Sendable {
         frameworkType: FrameworkType,
         packageManager: PackageManagerType? = nil,
         scripts: [String: String] = [:],
+        hasNodeModules: Bool = false,
         gitBranch: String? = nil,
         gitStatus: GitStatus? = nil,
         nodeModulesSize: Int64 = 0,
@@ -89,6 +91,7 @@ struct Project: Identifiable, Sendable {
         self.frameworkType = frameworkType
         self.packageManager = packageManager
         self.scripts = scripts
+        self.hasNodeModules = hasNodeModules
         self.gitBranch = gitBranch
         self.gitStatus = gitStatus
         self.nodeModulesSize = nodeModulesSize

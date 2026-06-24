@@ -116,6 +116,9 @@ final class AppState {
     /// HBuilderX 编辑器信息（仅 uniapp 项目使用）
     var hbuilderxInfo: EditorInfo? = nil
 
+    /// 微信开发者工具信息（仅微信小程序项目使用）
+    var wechatDevToolsInfo: EditorInfo? = nil
+
     /// 需要检测的编辑器 bundle ID 列表
     private static let editorBundleIDs = [
         "com.microsoft.VSCode",
@@ -129,6 +132,11 @@ final class AppState {
     private static let hbuilderxBundleIDs = [
         "io.dcloud.HBuilderX",
         "io.dcloud.HBuilderXAlpha",
+    ]
+
+    /// 微信开发者工具 bundle ID 列表
+    private static let wechatDevToolsBundleIDs = [
+        "com.tencent.webplusdevtools",
     ]
 
     // MARK: - UserDefaults 持久化键名
@@ -491,6 +499,15 @@ final class AppState {
                 break
             }
         }
+
+        // 检测微信开发者工具
+        wechatDevToolsInfo = nil
+        for bundleID in Self.wechatDevToolsBundleIDs {
+            if let info = await findEditorInfo(bundleID: bundleID) {
+                wechatDevToolsInfo = info
+                break
+            }
+        }
     }
 
     /// 通过 Spotlight 查找应用，返回实际显示名称和路径
@@ -512,10 +529,8 @@ final class AppState {
                     if let path, !path.isEmpty {
                         let url = URL(fileURLWithPath: path)
                         if FileManager.default.fileExists(atPath: path) {
-                            // 从 .app bundle 获取真实显示名称
-                            let displayName = Bundle(url: url)?
-                                .infoDictionary?["CFBundleName"] as? String
-                                ?? url.deletingPathExtension().lastPathComponent
+                            // 使用系统本地化显示名称（与 Finder 中显示一致）
+                            let displayName = FileManager.default.displayName(atPath: path)
                             return EditorInfo(
                                 id: bundleID,
                                 displayName: displayName,
