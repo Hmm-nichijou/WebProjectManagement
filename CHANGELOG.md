@@ -2,6 +2,12 @@
 
 ## [1.2] - 2026-06-24
 
+### 改进
+
+- **app图标修改**：使用Icon Composer制作Liquid Glass图标
+
+## [1.2] - 2026-06-24
+
 ### 新增功能
 
 - **Git 状态指示器**：卡片实时显示项目的 Git 工作区状态，包括修改、未跟踪文件数，以及与远程分支的 ahead/behind 提交数。使用线性风格图标（pencil.line、questionmark、arrow.up、arrow.down），工作区干净时不显示任何图标
