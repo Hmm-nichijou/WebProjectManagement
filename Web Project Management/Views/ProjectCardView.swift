@@ -277,6 +277,12 @@ struct ProjectCardView: View, Equatable {
                 Divider()
 
                 Button {
+                    Task { await appState.refreshProject(project) }
+                } label: {
+                    Label("刷新项目信息", systemImage: "arrow.clockwise.circle")
+                }
+
+                Button {
                     Task { await appState.reinstallProject(project) }
                 } label: {
                     Label("重装依赖", systemImage: "arrow.clockwise")

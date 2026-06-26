@@ -93,7 +93,7 @@ struct ContentView: View {
             AddProjectSheet(appState: appState)
         }
         .confirmationDialog(
-            "确认删除所有项目的构建产物（dist 和 dist.zip）？",
+            "确认删除所有项目的构建产物（构建输出目录和压缩包）？",
             isPresented: $showDeleteBuildsConfirm,
             titleVisibility: .visible
         ) {
@@ -259,20 +259,17 @@ struct ContentView: View {
             .help("应用设置")
 
             Menu {
-                Button(role: .destructive) {
+                Button("删除所有构建", role: .destructive) {
                     showDeleteBuildsConfirm = true
-                } label: {
-                    Label("删除所有构建", systemImage: "trash")
                 }
 
-                Button(role: .destructive) {
+                Button("删除所有依赖",role: .destructive) {
                     showDeleteDepsConfirm = true
-                } label: {
-                    Label("删除所有依赖", systemImage: "trash")
                 }
             } label: {
-                Label("更多", systemImage: "ellipsis.circle")
+                Label("更多", systemImage: "ellipsis")
             }
+            .menuIndicator(.hidden)
             .help("批量操作")
         }
     }
@@ -312,9 +309,12 @@ private struct SettingsSheet: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            VStack(alignment: .leading, spacing: 8) {
+            HStack() {
                 Text("外观模式")
                     .font(.headline)
+                    .frame(alignment: .leading)
+
+                Spacer()
 
                 Picker("", selection: $appState.themeMode) {
                     ForEach(ThemeMode.allCases) { mode in
@@ -322,7 +322,6 @@ private struct SettingsSheet: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(minWidth: 360)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -346,12 +345,14 @@ private struct SettingsSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
+                .buttonStyle(.glass)
 
                 Button("保存") {
                     appState.saveCloudDriveURL(draftURL)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.glassProminent)
             }
         }
         .padding(24)
@@ -402,6 +403,7 @@ private struct AddProjectSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .disabled(isCloning)
+                .buttonStyle(.glass)
 
                 Button("确定") {
                     isCloning = true
@@ -418,6 +420,7 @@ private struct AddProjectSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(gitURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCloning)
+                .buttonStyle(.glassProminent)
             }
         }
         .padding(24)

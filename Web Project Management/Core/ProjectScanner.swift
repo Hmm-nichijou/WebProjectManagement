@@ -31,7 +31,14 @@ struct ProjectScanner: Sendable {
         return projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    // MARK: - 扫描单个目录
+    // MARK: - 扫描单个目录（公开方法）
+
+    /// 扫描单个项目目录，返回识别到的项目信息
+    func scanSingle(projectURL: URL) async throws -> Project {
+        try await scanDirectory(projectURL)
+    }
+
+    // MARK: - 扫描单个目录（内部）
 
     private func scanDirectory(_ url: URL) async throws -> Project {
         let fm = FileManager.default
@@ -79,8 +86,11 @@ struct ProjectScanner: Sendable {
         let gitBranch = await detectGitBranch(at: url)
         let gitStatus = await detectGitStatus(at: url)
 
+        // 检测构建输出目录（从 vite.config 读取 outDir，默认 dist）
+        let buildOutDir = detectBuildOutDir(at: url)
+
         // 计算磁盘占用
-        let diskUsage = await calculateDiskUsage(at: url)
+        let diskUsage = await calculateDiskUsage(at: url, buildOutDir: buildOutDir)
 
         return Project(
             name: name,
@@ -89,6 +99,7 @@ struct ProjectScanner: Sendable {
             packageManager: packageManager,
             scripts: scripts,
             hasNodeModules: hasNodeModules,
+            buildOutDir: buildOutDir,
             gitBranch: gitBranch,
             gitStatus: gitStatus,
             nodeModulesSize: diskUsage.nodeModules,
@@ -220,7 +231,7 @@ struct ProjectScanner: Sendable {
 
     // MARK: - 计算磁盘占用
 
-    private func calculateDiskUsage(at url: URL) async -> (nodeModules: Int64, dist: Int64, distZip: Int64) {
+    private func calculateDiskUsage(at url: URL, buildOutDir: String) async -> (nodeModules: Int64, dist: Int64, distZip: Int64) {
         let fm = FileManager.default
         var nodeModulesSize: Int64 = 0
         var distSize: Int64 = 0
@@ -234,16 +245,16 @@ struct ProjectScanner: Sendable {
             }.value
         }
 
-        // dist 目录大小
-        let distPath = url.appendingPathComponent("dist")
+        // 构建输出目录大小
+        let distPath = url.appendingPathComponent(buildOutDir)
         if fm.fileExists(atPath: distPath.path) {
             distSize = await Task.detached {
                 Self.directorySize(at: distPath)
             }.value
         }
 
-        // dist.zip 文件大小
-        let zipPath = url.appendingPathComponent("dist.zip")
+        // 构建压缩包大小
+        let zipPath = url.appendingPathComponent("\(buildOutDir).zip")
         if fm.fileExists(atPath: zipPath.path) {
             if let attrs = try? fm.attributesOfItem(atPath: zipPath.path),
                let size = attrs[.size] as? Int64 {
@@ -325,6 +336,56 @@ struct ProjectScanner: Sendable {
             }
         }
         return false
+    }
+
+    // MARK: - 检测构建输出目录（读取 vite.config 的 outDir）
+
+    private func detectBuildOutDir(at url: URL) -> String {
+        let fm = FileManager.default
+        let configFiles = ["vite.config.ts", "vite.config.js", "vite.config.mjs"]
+
+        for filename in configFiles {
+            let configPath = url.appendingPathComponent(filename)
+            if fm.fileExists(atPath: configPath.path),
+               let content = try? String(contentsOf: configPath, encoding: .utf8) {
+
+                // 移除单行注释，避免误匹配
+                let lines = content.components(separatedBy: "\n")
+                    .map { line -> String in
+                        let trimmed = line.trimmingCharacters(in: .whitespaces)
+                        if trimmed.hasPrefix("//") { return "" }
+                        return line
+                    }
+                    .joined(separator: "\n")
+
+                // 提取 build: { ... } 配置块
+                if let buildRange = lines.range(of: #"build\s*:\s*\{"#, options: .regularExpression) {
+                    let afterBuild = String(lines[buildRange.upperBound...])
+                    // 取到第一个 } 为止（build 块结束）
+                    if let endIdx = afterBuild.firstIndex(of: "}") {
+                        let buildBlock = String(afterBuild[..<endIdx])
+                        // 匹配 outDir: 'xxx' 或 outDir: "xxx"
+                        if let match = buildBlock.range(of: #"outDir\s*:\s*['"]([^'"]+)['"]"#, options: .regularExpression) {
+                            let matched = String(buildBlock[match])
+                            if let valueRange = matched.range(of: #"['"][^'"]+['"]"#, options: .regularExpression) {
+                                var value = String(matched[valueRange])
+                                value.removeFirst()
+                                value.removeLast()
+                                // 只取最后一段路径名（去除 ./ 等前缀）
+                                let name = (value as NSString).lastPathComponent
+                                if !name.isEmpty && name != "/" {
+                                    return name
+                                }
+                            }
+                        }
+                    }
+                }
+
+                break  // 只检查第一个存在的配置文件
+            }
+        }
+
+        return "dist"
     }
 
     // MARK: - 智能框架识别（基于 package.json 依赖）

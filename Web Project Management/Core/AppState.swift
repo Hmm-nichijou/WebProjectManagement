@@ -219,6 +219,22 @@ final class AppState {
         }
     }
 
+    /// 刷新单个项目（保留运行状态）
+    func refreshProject(_ project: Project) async {
+        let scanner = ProjectScanner()
+        let currentStatus = project.status
+        do {
+            let refreshed = try await scanner.scanSingle(projectURL: project.path)
+            if let index = projects.firstIndex(where: { $0.id == project.id }) {
+                var updated = refreshed
+                updated.status = currentStatus
+                projects[index] = updated
+            }
+        } catch {
+            print("刷新项目失败: \(error)")
+        }
+    }
+
     // MARK: - 项目置顶
 
     /// 判断项目是否被置顶
@@ -583,17 +599,17 @@ final class AppState {
         }
     }
 
-    /// 批量删除所有项目的构建产物（dist 目录和 dist.zip）
+    /// 批量删除所有项目的构建产物（构建输出目录和压缩包）
     func deleteAllBuilds() async {
         isBatchOperating = true
-        let projectPaths = projects.map(\.path)
+        let projectInfos = projects.map { (path: $0.path, outDir: $0.buildOutDir) }
 
         let deleted = await Task.detached {
             let fm = FileManager.default
             var count = 0
-            for path in projectPaths {
-                let dist = path.appendingPathComponent("dist")
-                let zip = path.appendingPathComponent("dist.zip")
+            for (path, outDir) in projectInfos {
+                let dist = path.appendingPathComponent(outDir)
+                let zip = path.appendingPathComponent("\(outDir).zip")
                 if fm.fileExists(atPath: dist.path) {
                     try? fm.removeItem(at: dist)
                     count += 1

@@ -102,9 +102,10 @@ actor ProjectProcessManager {
             buildScript = "build"
         }
 
-        // 先清理旧的 dist 目录和 dist.zip
-        let distURL = project.path.appendingPathComponent("dist")
-        let distZipURL = project.path.appendingPathComponent("dist.zip")
+        // 先清理旧的构建输出目录和压缩包
+        let outDir = project.buildOutDir
+        let distURL = project.path.appendingPathComponent(outDir)
+        let distZipURL = project.path.appendingPathComponent("\(outDir).zip")
         clearDirectory(distURL)
         try? FileManager.default.removeItem(at: distZipURL)
 
@@ -126,19 +127,19 @@ actor ProjectProcessManager {
         setupPipeReading(pipe: outputPipe, path: path, session: session)
         setupPipeReading(pipe: errorPipe, path: path, session: session)
 
-        // 构建完成后自动压缩 dist 目录
+        // 构建完成后自动压缩构建输出目录
         let projectPath = project.path
         process.terminationHandler = { [weak self] proc in
             guard let self else { return }
             Task {
                 await self.handleTermination(path: path, exitCode: proc.terminationStatus)
 
-                // 构建成功则压缩 dist 目录
+                // 构建成功则压缩构建输出目录
                 if proc.terminationStatus == 0 {
-                    let dist = projectPath.appendingPathComponent("dist")
+                    let dist = projectPath.appendingPathComponent(outDir)
                     if FileManager.default.fileExists(atPath: dist.path) {
                         onStatusChange?(.compressing)
-                        await self.zipDist(projectPath: projectPath, path: path)
+                        await self.zipDist(projectPath: projectPath, path: path, outDir: outDir)
 
                         // 压缩完成后在浏览器中打开云盘网站
                         if let urlStr = cloudDriveURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
@@ -173,10 +174,11 @@ actor ProjectProcessManager {
         let session = Session()
         let packageManager = project.packageManager ?? .npm
 
-        // 清理 node_modules、dist、dist.zip
+        // 清理 node_modules、构建输出目录、压缩包
+        let outDir = project.buildOutDir
         clearDirectory(project.path.appendingPathComponent("node_modules"))
-        clearDirectory(project.path.appendingPathComponent("dist"))
-        try? FileManager.default.removeItem(at: project.path.appendingPathComponent("dist.zip"))
+        clearDirectory(project.path.appendingPathComponent(outDir))
+        try? FileManager.default.removeItem(at: project.path.appendingPathComponent("\(outDir).zip"))
 
         // 预计算环境变量（安装和构建共用）
         let env = buildEnvironment()
@@ -218,9 +220,9 @@ actor ProjectProcessManager {
 
                 let buildScript: String = project.scripts["border"] != nil ? "border" : "build"
 
-                // 清理 dist 准备构建
-                await self.clearDirectory(projectPath.appendingPathComponent("dist"))
-                try? FileManager.default.removeItem(at: projectPath.appendingPathComponent("dist.zip"))
+                // 清理构建输出目录准备构建
+                await self.clearDirectory(projectPath.appendingPathComponent(outDir))
+                try? FileManager.default.removeItem(at: projectPath.appendingPathComponent("\(outDir).zip"))
 
                 let buildProcess = Process()
                 buildProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -243,10 +245,10 @@ actor ProjectProcessManager {
                         await self.handleTermination(path: path, exitCode: bProc.terminationStatus)
 
                         if bProc.terminationStatus == 0 {
-                            let dist = projectPath.appendingPathComponent("dist")
+                            let dist = projectPath.appendingPathComponent(outDir)
                             if FileManager.default.fileExists(atPath: dist.path) {
                                 onStatusChange?(.compressing)
-                                await self.zipDist(projectPath: projectPath, path: path)
+                                await self.zipDist(projectPath: projectPath, path: path, outDir: outDir)
 
                                 if let urlStr = cloudDriveURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
                                     NSWorkspace.shared.open(url)
@@ -370,14 +372,15 @@ actor ProjectProcessManager {
         }
     }
 
-    /// 构建完成后压缩 dist 目录为 dist.zip
-    private func zipDist(projectPath: URL, path: String) async {
+    /// 构建完成后压缩构建输出目录
+    private func zipDist(projectPath: URL, path: String, outDir: String) async {
         guard let session = sessions[path] else { return }
-        appendLog("[压缩] 正在打包 dist.zip...\n", to: session)
+        let zipName = "\(outDir).zip"
+        appendLog("[压缩] 正在打包 \(zipName)...\n", to: session)
 
         let zipProcess = Process()
         zipProcess.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        zipProcess.arguments = ["-r", "dist.zip", "dist"]
+        zipProcess.arguments = ["-r", zipName, outDir]
         zipProcess.currentDirectoryURL = projectPath
 
         let outputPipe = Pipe()
@@ -393,9 +396,9 @@ actor ProjectProcessManager {
             // 等待 zip 进程完成
             zipProcess.waitUntilExit()
             if zipProcess.terminationStatus == 0 {
-                appendLog("[压缩] dist.zip 打包完成 ✓\n", to: session)
+                appendLog("[压缩] \(zipName) 打包完成 ✓\n", to: session)
             } else {
-                appendLog("[压缩] dist.zip 打包失败 (code: \(zipProcess.terminationStatus))\n", to: session)
+                appendLog("[压缩] \(zipName) 打包失败 (code: \(zipProcess.terminationStatus))\n", to: session)
             }
         } catch {
             appendLog("[错误] 压缩失败: \(error.localizedDescription)\n", to: session)
