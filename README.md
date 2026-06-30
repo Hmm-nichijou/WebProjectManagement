@@ -50,6 +50,10 @@
 
 ### 核心设计原则
 
+**两阶段扫描架构**：全局扫描采用快速展示 + 后台补充的两阶段策略。第一阶段（`scanQuick`）仅做文件检测，立即展示项目列表，卡片显示"加载中"状态；第二阶段（`scanDeep`）通过 `withTaskGroup` 并发执行 git 和磁盘操作，逐卡片更新。`Project.isEnriched` 标志区分"尚未扫描完成"和"确实无数据"，确保 UI 状态语义清晰。
+
+**构建输出目录动态检测**：`ProjectScanner.detectBuildOutDir()` 解析 `vite.config.ts/js/mjs` 中的 `build.outDir` 配置，所有构建、压缩、清除操作均使用项目实际的输出目录名（默认 `dist`），支持自定义构建目录。
+
 **日志与项目列表分离**：`LogStore` 作为独立的 `@Observable` 对象管理日志，通过按路径的"代数计数器"（generation counter）实现精准视图更新——日志追加仅触发对应项目的 `LogDrawerView` 重渲染，不会引起整个项目网格的重新计算。
 
 **AsyncStream 单消费者模式**：`AsyncStream` 仅支持单个迭代器消费者。应用中由 `AppState` 内的后台 `Task` 统一消费日志流并写入 `LogStore`，UI 层通过 `Task.sleep(200ms)` 轮询 `LogStore` 获取最新日志，避免多消费者竞争。
@@ -58,13 +62,16 @@
 
 **多阶段操作的 Continuation 生命周期管理**：`handleTermination` 仅记录退出状态，不关闭日志流。每个调用方（`build`、`cleanBuild`、`start`、`reinstall`）自行控制 `continuation.finish()` 的时机，确保构建后压缩、云盘打开等后续操作的日志不会丢失。`cleanBuild` 的两阶段流程（安装→构建）复用同一个 `AsyncStream` continuation。
 
-**Equatable 卡片优化**：`ProjectCardView` 实现 `Equatable` 协议并在 `ForEach` 中使用 `.equatable()`，仅当项目状态、名称或置顶状态变化时才重算卡片 body，避免无关更新引起的渲染开销。
+**Equatable 卡片优化**：`ProjectCardView` 实现 `Equatable` 协议并在 `ForEach` 中使用 `.equatable()`，仅当项目数据或置顶状态变化时才重算卡片 body。编辑器信息（`hasEditors`、`hbuilderxInfo`、`wechatDevToolsInfo`）作为预计算参数从父视图传入，避免卡片 body 中直接读取 `@Observable` 属性导致 Equatable 优化失效。
+
+**过滤缓存机制**：`filteredProjectsCache` 使用 `@State` 缓存排序 + 过滤结果，通过 `.onChange` 监听搜索文本、筛选条件和 `projectsRevision` 统一版本号重建，滚动时不再重复执行计算。`updateProjectStatus()` 方法统一处理状态赋值 + 版本号递增，确保所有数据变更路径一致。
 
 ## 功能特性
 
 ### 项目管理
 
-- **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json`、`index.html` 或特征文件的项目
+- **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json`、`index.html` 或特征文件的项目。采用两阶段策略——快速展示列表后，后台并发补充 git 和磁盘数据
+- **构建输出目录检测**：自动读取 `vite.config.ts/js/mjs` 中的 `build.outDir`，构建、压缩、清除构建物均使用项目实际输出目录名（默认 `dist`）
 - **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），uni-app / uni-app x 项目（基于 `manifest.json` + `pages.json` 特征文件），微信小程序项目（基于 `miniprogram/pages/*.wxml`），以及 HTML 静态项目。unknown 和微信小程序类型隐藏运行和构建按钮
 - **包管理器检测**：通过锁文件（`package-lock.json`、`pnpm-lock.yaml`、`yarn.lock`）自动识别 npm/pnpm/yarn
 - **node_modules 安装标签**：已安装 node_modules 的项目在卡片上显示绿色胶囊标签，未安装则不显示
@@ -82,7 +89,7 @@
 ### 进程操作
 
 - **启动开发服务器**：执行 `npm/pnpm/yarn run dev`，实时输出日志
-- **快速构建**：执行 `build`（或 `border`）脚本，构建成功后自动压缩 dist 为 `dist.zip`
+- **快速构建**：执行 `build`（或 `border`）脚本，构建成功后自动压缩输出目录为 `.zip`（目录名从 `vite.config` 动态读取）
 - **全新构建**：两阶段流水线——删除 `node_modules` → 重装依赖 → 执行构建 → 压缩 dist
 - **重装依赖**：删除 `node_modules` 后重新安装
 - **取消构建**：构建/安装/压缩过程中可点击"取消构建"终止操作，启停按钮独立不受影响
@@ -106,14 +113,15 @@
 - **在 Finder 中打开**：直接在 Finder 中定位项目目录
 - **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称。uni-app 项目在菜单顶部额外显示 HBuilderX，微信小程序项目在顶部额外显示微信开发者工具（需系统已安装）
 - **在终端中打开**：通过 AppleScript 在 Terminal.app 中打开并 `cd` 到项目目录
+- **刷新项目信息**：卡片菜单中支持单个项目的独立深度扫描（git + 磁盘占用），无需全局刷新
 - **移到废纸篓**：安全删除项目（使用 `FileManager.trashItem`），支持从废纸篓恢复
 
 ### 批量操作
 
 工具栏"更多"菜单提供：
 
-- **删除所有构建**：批量删除所有项目的 `dist` 目录和 `dist.zip`
-- **删除所有依赖**：批量删除所有项目的 `node_modules`
+- **删除所有构建**：批量删除所有项目的构建输出目录和压缩包，删除后立即刷新磁盘占用显示
+- **删除所有依赖**：批量删除所有项目的 `node_modules`，删除后立即更新卡片标签和磁盘占用
 
 ### Git 克隆
 
@@ -150,14 +158,14 @@ Web Project Management/
 │   │   └── FrameworkType.swift                # 前端框架类型枚举 + 标识色
 │   │
 │   ├── Core/                                  # 核心业务逻辑层
-│   │   ├── AppState.swift                     # 全局状态管理（@Observable）+ ThemeMode + EditorInfo
+│   │   ├── AppState.swift                     # 全局状态管理（@Observable + projectsRevision）+ ThemeMode + EditorInfo
 │   │   ├── LogStore.swift                     # 独立日志存储（按路径分代追踪，行缓冲区）
 │   │   ├── ProjectProcessManager.swift        # Actor 进程管理器（AsyncStream 日志流）
-│   │   └── ProjectScanner.swift               # 项目目录扫描器（框架/包管理器/Git/磁盘占用识别）
+│   │   └── ProjectScanner.swift               # 项目目录扫描器（框架/包管理器/Git/磁盘占用/构建目录识别）
 │   │
 │   ├── Views/                                 # SwiftUI 视图层
-│   │   ├── ContentView.swift                  # 主内容视图 + 搜索筛选 Menu + 工具栏 + 设置 + 弹窗
-│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化）+ Git 状态 + 操作按钮 + 自适应阴影
+│   │   ├── ContentView.swift                  # 主内容视图 + 搜索筛选 Menu + 过滤缓存 + 工具栏 + 设置 + 弹窗
+│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化 + 预计算参数）+ Git 状态 + 操作按钮
 │   │   ├── LogDrawerView.swift                # 底部终端日志面板（LazyVStack 渲染）
 │   │   ├── EmptyStateView.swift               # 首次启动引导视图（拖拽/选择目录）
 │   │   └── AppBackgroundView.swift            # 窗口背景色
@@ -241,9 +249,11 @@ open "Web Project Management.xcodeproj"
 
 - **日志分离渲染**：`LogStore` 独立于 `projects` 数组，日志追加不触发项目网格重算
 - **行缓冲区 + LazyVStack**：日志按行存储为 `LogEntry` 数组，使用 `LazyVStack` + `ForEach` 懒加载渲染，2000 行上限自动裁剪旧行
-- **Equatable 卡片**：`ProjectCardView` 通过 `Equatable` + `.equatable()` 跳过无关属性变化引起的 body 重算
-- **自适应卡片阴影**：使用 `Color.primary.opacity(0.08)` 阴影，浅色模式下为暗色阴影，深色模式下为微弱亮色光晕。阴影前添加 `.compositingGroup()` 扁平化视图层级，避免多卡片场景下的渲染卡顿
-- **避免高开销修饰符**：不使用 `.ultraThinMaterial`（GPU 密集）、不使用 `repeatForever` 动画（窗口切换时卡顿）、静态阴影替代动态阴影
+- **Equatable 卡片**：`ProjectCardView` 通过 `Equatable` + `.equatable()` 跳过无关属性变化引起的 body 重算，编辑器信息作为预计算参数传入避免 `@Observable` 追踪污染
+- **过滤缓存**：`filteredProjectsCache`（`@State`）缓存排序 + 过滤结果，`projectsRevision` 统一版本号追踪所有项目数据变更，滚动时零计算开销
+- **两阶段扫描**：快速文件检测后立即展示列表，git 和磁盘操作通过 `withTaskGroup` 并发后台补充，卡片以"加载中"状态过渡
+- **自适应卡片阴影**：使用 `.background(RoundedRectangle.fill().shadow())` 仅在背景形状上绘制阴影，避免 `.compositingGroup()` 的整卡离屏渲染开销
+- **避免高开销修饰符**：不使用 `.ultraThinMaterial`（GPU 密集）、不使用 `repeatForever` 动画（窗口切换时卡顿）、静态图标替代 `ProgressView` 动画（防止多卡片同时动画引起布局抖动）
 - **非动画滚动**：日志面板使用非动画 `scrollTo`，避免快速日志块堆积导致动画栈溢出
 - **轮询消费**：UI 以 200ms 间隔轮询 `LogStore`，而非直接消费 `AsyncStream`，避免双消费者竞争
 

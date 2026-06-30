@@ -1,10 +1,47 @@
 # Changelog
 
-## [1.2] - 2026-06-24
+## [1.2.2] - 2026-06-30
+
+### 新增功能
+
+- **项目卡片独立刷新**：卡片"更多"菜单新增"刷新项目信息"选项，支持单个项目深度扫描（git + 磁盘占用），无需全局刷新
+- **构建输出目录动态检测**：读取 `vite.config.ts/js/mjs` 中的 `build.outDir` 配置，构建、压缩、清除构建物均使用项目实际的输出目录名（默认 `dist`），支持自定义构建目录
+- **搜索栏液态玻璃效果**：搜索框使用 `.regularMaterial` 背景 + 圆角 + 半透明边框，实现类玻璃磨砂效果
 
 ### 改进
 
-- **app图标修改**：使用Icon Composer制作Liquid Glass图标
+- **两阶段扫描架构**：全局扫描改为快速展示 + 后台补充。第一阶段文件检测后立即展示项目列表，卡片显示"加载中"状态；第二阶段并发补充 git 分支/状态和磁盘占用数据，逐卡片更新
+- **工具栏菜单重构**：合并"删除所有构建"和"删除所有依赖"到"更多"下拉菜单，替换菜单图标为 `ellipsis`
+- **设置页布局优化**：外观模式选项从纵向改为横向排版，与标签同行显示
+- **弹窗按钮玻璃态**：设置和添加项目弹窗的按钮添加 `.glass` / `.glassProminent` 样式
+- **卡片加载状态**：深度扫描未完成时显示静态 `circle.dashed` 图标 + "加载中"文字，替代 `ProgressView` 动画（避免多卡片同时动画引起滚动卡顿）
+- **卡片阴影优化**：移除 `.compositingGroup()`（整卡离屏渲染开销大），改为 `.background(RoundedRectangle.fill().shadow())`，阴影仅作用于背景形状
+- **编辑器显示名称本地化**：使用 `FileManager.displayName(atPath:)` 获取系统本地化名称，与 Finder 中显示一致
+- **批量删除即时刷新**：删除所有构建/依赖后，立即更新项目结构体中的磁盘占用数据并刷新 UI，无需等待下次扫描
+
+### 性能优化
+
+- **过滤缓存**：`filteredProjects` 从计算属性改为 `@State` 缓存，通过 `.onChange` 监听搜索文本、筛选条件、`projectsRevision` 重建，滚动时不再重复执行排序 + 过滤
+- **统一版本号计数器**：`projectsRevision` 统一追踪所有项目数据变更（列表增减、置顶、状态变更、批量操作），替代原先分散的 `sortedProjectsCache` + `statusRevision`
+- **卡片 Equatable 增强**：`ProjectCardView` 的 `==` 比较增加 `gitBranch`、`frameworkType`、`packageManager` 字段，确保这些属性变化时卡片正确重渲染
+- **@Observable 追踪隔离**：卡片参数改为预计算值传入（`hasEditors`、`hbuilderxInfo`、`wechatDevToolsInfo`），避免卡片 body 中直接读取 `@Observable` 属性导致 Equatable 优化失效
+- **PinButton 动画简化**：`.animation(.easeInOut, value:)` 改为 `onHover { withAnimation {} }`，减少滚动时的动画追踪开销
+
+### 代码优化
+
+- `AppState` 全面重构：移除 `sortedProjectsCache` 和 `rebuildSortedProjects()`，合并为 `projectsRevision` 统一计数器
+- 新增 `updateProjectStatus()` 方法统一处理状态赋值 + 版本号递增，消除 11 处重复代码
+- `Project.isEnriched`、`hasNodeModules`、`nodeModulesSize`、`distSize`、`distZipSize` 从 `let` 改为 `var`，支持批量操作后原地更新
+- `refreshProject` 从完整结构体重建简化为 `projects[idx].isEnriched = false` 一行
+- `savePinnedPaths()` 提取为私有方法复用
+- `ThemeMode` 枚举体使用 switch 表达式简化
+- `Project` 和 `ProjectStatus` 添加 `Equatable` 协议遵循
+
+## [1.2.1] - 2026-06-24
+
+### 改进
+
+- **app 图标修改**：使用 Icon Composer 制作 Liquid Glass 风格图标
 
 ## [1.2] - 2026-06-24
 
@@ -28,7 +65,6 @@
 - **AnimatedBackgroundView 重命名**：重命名为 `AppBackgroundView`，更准确反映其当前用途
 - **Git 状态图标风格统一**：所有图标统一使用线性风格，图标与数值之间无间距，不同状态组之间保持间隔
 - **卡片阴影效果**：项目卡片添加自适应阴影（`Color.primary.opacity(0.08)`），浅色模式下为暗色阴影，深色模式下为微弱亮色光晕，清晰区分卡片边界
-- **卡片阴影性能优化**：阴影前添加 `.compositingGroup()` 扁平化视图层级，减少阴影半径至 4，避免多卡片场景下的渲染卡顿
 - **操作按钮权限控制**：通过 `FrameworkType.supportsRunBuild` 属性统一控制运行/构建按钮的显示，unknown 和微信小程序类型不展示这些按钮
 - **编辑器显示名称本地化**：编辑器菜单中的名称改为使用 `FileManager.displayName(atPath:)` 获取系统本地化名称，与 Finder 中显示一致（如"微信开发者工具"而非"wechatwebdevtools"）
 
