@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - 项目运行状态
 
-enum ProjectStatus: Sendable {
+enum ProjectStatus: Sendable, Equatable {
     case idle         // 空闲/停止
     case running      // 正在运行
     case installing   // 安装依赖中

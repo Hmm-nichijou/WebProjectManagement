@@ -20,8 +20,11 @@ struct ProjectCardView: View, Equatable {
         lhs.project.id == rhs.project.id &&
         lhs.project.status == rhs.project.status &&
         lhs.project.name == rhs.project.name &&
+        lhs.project.gitBranch == rhs.project.gitBranch &&
         lhs.project.gitStatus == rhs.project.gitStatus &&
         lhs.project.hasNodeModules == rhs.project.hasNodeModules &&
+        lhs.project.frameworkType == rhs.project.frameworkType &&
+        lhs.project.packageManager == rhs.project.packageManager &&
         lhs.project.isEnriched == rhs.project.isEnriched &&
         lhs.isPinned == rhs.isPinned &&
         lhs.hasEditors == rhs.hasEditors &&
@@ -35,7 +38,11 @@ struct ProjectCardView: View, Equatable {
             cardBody
             cardActions
         }
-        .background(Color(.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(.controlBackgroundColor))
+                .shadow(color: Color.primary.opacity(0.08), radius: 4, x: 0, y: 2)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(
@@ -43,8 +50,6 @@ struct ProjectCardView: View, Equatable {
                     lineWidth: isPinned ? 1.5 : 1
                 )
         )
-        .compositingGroup()
-        .shadow(color: Color.primary.opacity(0.08), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - 卡片头部
@@ -289,7 +294,6 @@ struct ProjectCardView: View, Equatable {
                     Label("在终端中打开", systemImage: "terminal")
                 }
 
-
                 Divider()
 
                 Button {
@@ -461,9 +465,9 @@ private struct PinButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .animation(.easeInOut(duration: 0.12), value: isHovering)
-        .animation(.easeInOut(duration: 0.08), value: isPressed)
-        .onHover { hovering in isHovering = hovering }
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.12)) { isHovering = hovering }
+        }
         .simultaneousGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { _ in isPressed = true }

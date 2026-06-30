@@ -14,14 +14,24 @@ struct ContentView: View {
     @State private var showDeleteDepsConfirm = false
     @FocusState private var isSearchFocused: Bool
 
+    /// 缓存的过滤结果（仅在搜索/筛选条件或排序列表变化时重建）
+    @State private var filteredProjectsCache: [Project] = []
+
     /// 是否有活跃的筛选条件
     private var hasActiveFilters: Bool {
         !searchText.isEmpty || frameworkFilter != nil || statusFilter != nil
     }
 
-    /// 按搜索关键词和筛选条件过滤后的项目列表
-    private var filteredProjects: [Project] {
-        appState.sortedProjects.filter { project in
+    /// 根据当前搜索和筛选条件重建过滤缓存
+    /// 先排序再过滤，确保项目状态变更后数据始终一致
+    private func rebuildFilteredProjects() {
+        let sorted = appState.projects.sorted { a, b in
+            let aPinned = appState.pinnedProjectPaths.contains(a.path.path)
+            let bPinned = appState.pinnedProjectPaths.contains(b.path.path)
+            if aPinned != bPinned { return aPinned }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+        filteredProjectsCache = sorted.filter { project in
             // 名称搜索
             if !searchText.isEmpty {
                 let query = searchText.lowercased()
@@ -132,6 +142,11 @@ struct ContentView: View {
         }
         .animation(.easeInOut(duration: 0.25), value: appState.isBatchOperating)
         .animation(.easeInOut(duration: 0.25), value: appState.toastMessage)
+        .onAppear { rebuildFilteredProjects() }
+        .onChange(of: searchText) { rebuildFilteredProjects() }
+        .onChange(of: frameworkFilter) { rebuildFilteredProjects() }
+        .onChange(of: statusFilter) { rebuildFilteredProjects() }
+        .onChange(of: appState.projectsRevision) { rebuildFilteredProjects() }
     }
 
     // MARK: - 项目网格内容
@@ -176,7 +191,7 @@ struct ContentView: View {
                     }
 
                     if hasActiveFilters {
-                        Text("\(filteredProjects.count) / \(appState.projects.count) 个项目")
+                        Text("\(filteredProjectsCache.count) / \(appState.projects.count) 个项目")
                             .font(.caption)
                             .foregroundStyle(Color(red: 0.4, green: 0.5, blue: 0.7))
                     } else {
@@ -201,7 +216,7 @@ struct ContentView: View {
 
             // 自适应网格布局
             ScrollView {
-                if filteredProjects.isEmpty && hasActiveFilters {
+                if filteredProjectsCache.isEmpty && hasActiveFilters {
                     // 筛选无结果
                     VStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
@@ -225,7 +240,7 @@ struct ContentView: View {
                         columns: [GridItem(.adaptive(minimum: 260, maximum: 380), spacing: 16)],
                         spacing: 16
                     ) {
-                        ForEach(filteredProjects) { project in
+                        ForEach(filteredProjectsCache) { project in
                             ProjectCardView(
                                 project: project,
                                 appState: appState,
@@ -323,10 +338,9 @@ private struct SettingsSheet: View {
                 .font(.title2)
                 .fontWeight(.semibold)
 
-            HStack() {
+            HStack {
                 Text("外观模式")
                     .font(.headline)
-                    .frame(alignment: .leading)
 
                 Spacer()
 

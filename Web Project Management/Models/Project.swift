@@ -49,21 +49,21 @@ enum PackageManagerType: String, Sendable {
 
 // MARK: - Web 项目模型
 
-struct Project: Identifiable, Sendable {
+struct Project: Identifiable, Sendable, Equatable {
     let id: UUID
     let name: String
     let path: URL
     let frameworkType: FrameworkType
     let packageManager: PackageManagerType?
     let scripts: [String: String]
-    let hasNodeModules: Bool
+    var hasNodeModules: Bool
     let buildOutDir: String
     let gitBranch: String?
     let gitStatus: GitStatus?
-    let nodeModulesSize: Int64
-    let distSize: Int64
-    let distZipSize: Int64
-    let isEnriched: Bool
+    var nodeModulesSize: Int64
+    var distSize: Int64
+    var distZipSize: Int64
+    var isEnriched: Bool
 
     /// 当前运行状态
     var status: ProjectStatus = .idle

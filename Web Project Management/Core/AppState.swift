@@ -4,25 +4,23 @@ import AppKit
 // MARK: - 主题模式
 
 enum ThemeMode: String, CaseIterable, Identifiable, Sendable {
-    case light
-    case dark
-    case system
+    case light, dark, system
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .light: return "浅色"
-        case .dark: return "深色"
-        case .system: return "跟随系统"
+        case .light: "浅色"
+        case .dark: "深色"
+        case .system: "跟随系统"
         }
     }
 
     var colorScheme: ColorScheme? {
         switch self {
-        case .light: return .light
-        case .dark: return .dark
-        case .system: return nil
+        case .light: .light
+        case .dark: .dark
+        case .system: nil
         }
     }
 }
@@ -54,72 +52,44 @@ struct EditorInfo: Identifiable, Sendable, Equatable {
 @Observable
 final class AppState {
 
+    // MARK: - 公开属性
+
     /// 用户选择的项目集根目录
     var rootDirectory: URL?
 
     /// 扫描到的项目列表
     var projects: [Project] = []
 
-    /// 排序后的项目列表（置顶优先，同组内按名称排序）
-    var sortedProjects: [Project] {
-        projects.sorted { a, b in
-            let aPinned = pinnedProjectPaths.contains(a.path.path)
-            let bPinned = pinnedProjectPaths.contains(b.path.path)
-            if aPinned != bPinned { return aPinned }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
-    }
+    /// 项目数据变更版本号（列表增减、置顶、状态变化时递增）
+    /// ContentView 通过 .onChange 监听此值来重建过滤缓存
+    var projectsRevision: Int = 0
 
-    /// 是否正在扫描
-    var isScanning: Bool = false
-
-    /// 是否正在执行批量操作（删除构建/依赖）
-    var isBatchOperating: Bool = false
-
-    /// Toast 通知消息（非 nil 时自动显示并定时消失）
-    var toastMessage: String? = nil
-
-    /// 主题模式（浅色/深色/跟随系统）
-    var themeMode: ThemeMode = .system {
-        didSet {
-            UserDefaults.standard.set(themeMode.rawValue, forKey: savedThemeKey)
-        }
-    }
-
-    /// 是否为首次启动（无已保存目录）
-    var isFirstLaunch: Bool = true
-
-    /// 进程管理器（actor，确保并发安全）
-    let processManager = ProjectProcessManager()
-
-    /// 独立日志存储（日志更新不触发项目网格重算）
-    let logStore = LogStore()
-
-    /// 当前在底部面板查看日志的项目 ID（nil 表示面板关闭）
+    var isScanning = false
+    var isBatchOperating = false
+    var toastMessage: String?
+    var isFirstLaunch = true
     var logViewingProjectID: UUID?
-
-    /// 是否显示添加项目弹窗
-    var showAddProject: Bool = false
-
-    /// 活跃日志流缓存
-    private var logStreams: [String: AsyncStream<String>] = [:]
-
-    /// 云盘网站 URL（构建完成后自动打开）
+    var showAddProject = false
     var cloudDriveURL: String = ""
 
     /// 置顶的项目路径集合（使用绝对路径而非 UUID，确保重新扫描后置顶状态不丢失）
     var pinnedProjectPaths: Set<String> = []
 
-    /// 系统检测到的已安装编辑器
     var detectedEditors: [EditorInfo] = []
+    var hbuilderxInfo: EditorInfo?
+    var wechatDevToolsInfo: EditorInfo?
 
-    /// HBuilderX 编辑器信息（仅 uniapp 项目使用）
-    var hbuilderxInfo: EditorInfo? = nil
+    /// 主题模式（浅色/深色/跟随系统）
+    var themeMode: ThemeMode = .system {
+        didSet { UserDefaults.standard.set(themeMode.rawValue, forKey: savedThemeKey) }
+    }
 
-    /// 微信开发者工具信息（仅微信小程序项目使用）
-    var wechatDevToolsInfo: EditorInfo? = nil
+    // MARK: - 私有 / 常量
 
-    /// 需要检测的编辑器 bundle ID 列表
+    let processManager = ProjectProcessManager()
+    let logStore = LogStore()
+    private var logStreams: [String: AsyncStream<String>] = [:]
+
     private static let editorBundleIDs = [
         "com.microsoft.VSCode",
         "com.jetbrains.WebStorm",
@@ -127,19 +97,9 @@ final class AppState {
         "com.sublimetext.4",
         "com.panic.Nova",
     ]
+    private static let hbuilderxBundleIDs = ["io.dcloud.HBuilderX", "io.dcloud.HBuilderXAlpha"]
+    private static let wechatDevToolsBundleIDs = ["com.tencent.webplusdevtools"]
 
-    /// HBuilderX bundle ID 列表
-    private static let hbuilderxBundleIDs = [
-        "io.dcloud.HBuilderX",
-        "io.dcloud.HBuilderXAlpha",
-    ]
-
-    /// 微信开发者工具 bundle ID 列表
-    private static let wechatDevToolsBundleIDs = [
-        "com.tencent.webplusdevtools",
-    ]
-
-    // MARK: - UserDefaults 持久化键名
     private let savedPathKey = "savedRootDirectory"
     private let savedCloudDriveKey = "savedCloudDriveURL"
     private let savedPinnedKey = "savedPinnedProjectIDs"
@@ -150,18 +110,17 @@ final class AppState {
     init() {
         loadSavedDirectory()
         cloudDriveURL = UserDefaults.standard.string(forKey: savedCloudDriveKey) ?? ""
-        if let pinnedData = UserDefaults.standard.data(forKey: savedPinnedKey),
-           let pinned = try? JSONDecoder().decode(Set<String>.self, from: pinnedData) {
+        if let data = UserDefaults.standard.data(forKey: savedPinnedKey),
+           let pinned = try? JSONDecoder().decode(Set<String>.self, from: data) {
             pinnedProjectPaths = pinned
         }
-        if let themeStr = UserDefaults.standard.string(forKey: savedThemeKey),
-           let mode = ThemeMode(rawValue: themeStr) {
+        if let str = UserDefaults.standard.string(forKey: savedThemeKey),
+           let mode = ThemeMode(rawValue: str) {
             themeMode = mode
         }
         Task { await detectEditors() }
     }
 
-    /// 保存云盘网站 URL 到 UserDefaults
     func saveCloudDriveURL(_ url: String) {
         cloudDriveURL = url
         UserDefaults.standard.set(url, forKey: savedCloudDriveKey)
@@ -169,7 +128,6 @@ final class AppState {
 
     // MARK: - 目录管理
 
-    /// 加载已保存的目录路径
     private func loadSavedDirectory() {
         if let path = UserDefaults.standard.string(forKey: savedPathKey) {
             let url = URL(fileURLWithPath: path)
@@ -181,7 +139,6 @@ final class AppState {
         }
     }
 
-    /// 设置新的项目集根目录
     func setRootDirectory(_ url: URL) {
         rootDirectory = url
         isFirstLaunch = false
@@ -189,7 +146,6 @@ final class AppState {
         Task { await scanProjects() }
     }
 
-    /// 显示目录选择面板
     func selectDirectory() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -197,39 +153,33 @@ final class AppState {
         panel.allowsMultipleSelection = false
         panel.message = "选择你的前端项目集根目录"
         panel.prompt = "选择"
-
         if panel.runModal() == .OK, let url = panel.url {
             setRootDirectory(url)
         }
     }
 
-    // MARK: - 项目扫描
+    // MARK: - 项目扫描（两阶段：快速展示 + 后台补充）
 
-    /// 扫描根目录下的所有 Web 项目（两阶段：快速展示 + 后台补充）
     func scanProjects() async {
         guard let root = rootDirectory else { return }
         isScanning = true
 
         let scanner = ProjectScanner()
         do {
-            // 第一阶段：快速扫描，立即展示列表（不含 git 和磁盘占用）
             projects = try await scanner.scanQuick(rootURL: root)
+            projectsRevision += 1
             isScanning = false
 
-            // 第二阶段：后台并发补充 git 和磁盘数据
             await withTaskGroup(of: (UUID, Project).self) { group in
                 for project in projects {
-                    group.addTask {
-                        let enriched = await scanner.scanDeep(project: project)
-                        return (project.id, enriched)
-                    }
+                    group.addTask { await (project.id, scanner.scanDeep(project: project)) }
                 }
                 for await (id, enriched) in group {
-                    if let index = projects.firstIndex(where: { $0.id == id }) {
-                        // 保留运行状态
+                    if let idx = projects.firstIndex(where: { $0.id == id }) {
                         var updated = enriched
-                        updated.status = projects[index].status
-                        projects[index] = updated
+                        updated.status = projects[idx].status
+                        projects[idx] = updated
+                        projectsRevision += 1
                     }
                 }
             }
@@ -241,39 +191,26 @@ final class AppState {
 
     /// 刷新单个项目（先进入 loading，再深度扫描）
     func refreshProject(_ project: Project) async {
-        // 先标记为未补充，卡片进入 loading 状态
-        if let index = projects.firstIndex(where: { $0.id == project.id }) {
-            var loading = projects[index]
-            loading = Project(
-                id: loading.id, name: loading.name, path: loading.path,
-                frameworkType: loading.frameworkType, packageManager: loading.packageManager,
-                scripts: loading.scripts, hasNodeModules: loading.hasNodeModules,
-                buildOutDir: loading.buildOutDir,
-                gitBranch: loading.gitBranch, gitStatus: loading.gitStatus,
-                nodeModulesSize: loading.nodeModulesSize,
-                distSize: loading.distSize, distZipSize: loading.distZipSize,
-                isEnriched: false, status: loading.status
-            )
-            projects[index] = loading
-        }
+        guard let idx = projects.firstIndex(where: { $0.id == project.id }) else { return }
 
-        let scanner = ProjectScanner()
-        let enriched = await scanner.scanDeep(project: project)
-        if let index = projects.firstIndex(where: { $0.id == project.id }) {
+        projects[idx].isEnriched = false
+        projectsRevision += 1
+
+        let enriched = await ProjectScanner().scanDeep(project: project)
+        if let idx = projects.firstIndex(where: { $0.id == project.id }) {
             var updated = enriched
-            updated.status = projects[index].status
-            projects[index] = updated
+            updated.status = projects[idx].status
+            projects[idx] = updated
+            projectsRevision += 1
         }
     }
 
     // MARK: - 项目置顶
 
-    /// 判断项目是否被置顶
     func isPinned(_ project: Project) -> Bool {
         pinnedProjectPaths.contains(project.path.path)
     }
 
-    /// 切换项目的置顶状态
     func togglePin(_ project: Project) {
         let path = project.path.path
         if pinnedProjectPaths.contains(path) {
@@ -281,26 +218,28 @@ final class AppState {
         } else {
             pinnedProjectPaths.insert(path)
         }
-        if let data = try? JSONEncoder().encode(pinnedProjectPaths) {
-            UserDefaults.standard.set(data, forKey: savedPinnedKey)
-        }
+        savePinnedPaths()
+        projectsRevision += 1
+    }
+
+    // MARK: - 项目状态更新（统一入口，确保 projectsRevision 同步递增）
+
+    private func updateProjectStatus(_ project: Project, to status: ProjectStatus) {
+        guard let idx = projects.firstIndex(where: { $0.id == project.id }) else { return }
+        projects[idx].status = status
+        projectsRevision += 1
     }
 
     // MARK: - Git 克隆
 
-    /// 克隆 Git 仓库到根目录，完成后重新扫描并打开日志面板
     @discardableResult
     func cloneProject(gitURL: String) async -> String? {
         guard let root = rootDirectory else { return "未设置项目根目录" }
 
-        // 从 URL 提取项目名
-        let name = gitURL
-            .components(separatedBy: "/").last?
+        let name = gitURL.components(separatedBy: "/").last?
             .replacingOccurrences(of: ".git", with: "") ?? "project"
-
         let targetPath = root.appendingPathComponent(name)
 
-        // 如果目录已存在，报错
         if FileManager.default.fileExists(atPath: targetPath.path) {
             return "目录 \(name) 已存在"
         }
@@ -308,7 +247,6 @@ final class AppState {
         let path = targetPath.path
         logStore.clear(for: path)
 
-        // 创建日志流
         let stream = AsyncStream<String> { continuation in
             continuation.yield("[克隆] git clone \(gitURL)\n")
 
@@ -322,63 +260,46 @@ final class AppState {
             process.standardOutput = outputPipe
             process.standardError = errorPipe
 
-            let readPipe = { (pipe: Pipe) in
+            for pipe in [outputPipe, errorPipe] {
                 pipe.fileHandleForReading.readabilityHandler = { handle in
                     let data = handle.availableData
                     guard !data.isEmpty, let text = String(data: data, encoding: .utf8) else { return }
                     continuation.yield(text)
                 }
             }
-            readPipe(outputPipe)
-            readPipe(errorPipe)
 
             process.terminationHandler = { proc in
                 outputPipe.fileHandleForReading.readabilityHandler = nil
                 errorPipe.fileHandleForReading.readabilityHandler = nil
-                if proc.terminationStatus == 0 {
-                    continuation.yield("\n[完成] 克隆成功 ✓\n")
-                } else {
-                    continuation.yield("\n[错误] 克隆失败 (code: \(proc.terminationStatus))\n")
-                }
+                continuation.yield(proc.terminationStatus == 0
+                    ? "\n[完成] 克隆成功 ✓\n"
+                    : "\n[错误] 克隆失败 (code: \(proc.terminationStatus))\n")
                 continuation.finish()
             }
 
-            do {
-                try process.run()
-            } catch {
-                continuation.yield("\n[错误] \(error.localizedDescription)\n")
-                continuation.finish()
-            }
+            do { try process.run() }
+            catch { continuation.yield("\n[错误] \(error.localizedDescription)\n"); continuation.finish() }
         }
 
         logStreams[path] = stream
 
-        // 后台消费日志写入 LogStore
         Task { [weak self] in
-            for await chunk in stream {
-                self?.logStore.append(chunk, for: path)
-            }
+            for await chunk in stream { self?.logStore.append(chunk, for: path) }
         }
 
-        // 等待克隆完成（通过日志流结束判断）
         for await _ in logStreams[path]! {}
-
-        // 重新扫描项目
         await scanProjects()
 
-        // 找到新项目并打开日志面板
         if let newProject = projects.first(where: { $0.path.path == path }) {
             logViewingProjectID = newProject.id
         }
-
         return nil
     }
 
     // MARK: - 进程操作
 
-    /// 启动开发服务器
     func startProject(_ project: Project, script: String = "dev") async {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
+        guard projects.contains(where: { $0.id == project.id }) else { return }
 
         let path = project.path.path
         logStore.clear(for: path)
@@ -386,34 +307,26 @@ final class AppState {
         let stream = await processManager.start(project: project, script: script)
         logStreams[path] = stream
 
-        projects[index].status = .running
+        updateProjectStatus(project, to: .running)
         logViewingProjectID = project.id
 
-        // 后台消费日志流 → 写入 LogStore（不触发 projects 数组变化）
         Task { [weak self] in
-            for await chunk in stream {
-                self?.logStore.append(chunk, for: path)
-            }
+            for await chunk in stream { self?.logStore.append(chunk, for: path) }
         }
     }
 
-    /// 停止项目进程
     func stopProject(_ project: Project) async {
         await processManager.stop(projectPath: project.path)
         logStreams.removeValue(forKey: project.path.path)
-        if let index = projects.firstIndex(where: { $0.id == project.id }) {
-            projects[index].status = .idle
-        }
-        // 停止时自动关闭该项目的日志面板
+        updateProjectStatus(project, to: .idle)
         if logViewingProjectID == project.id {
             logViewingProjectID = nil
         }
     }
 
-    /// 执行构建
     func buildProject(_ project: Project) async {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
-        projects[index].status = .building
+        guard projects.contains(where: { $0.id == project.id }) else { return }
+        updateProjectStatus(project, to: .building)
 
         let path = project.path.path
         logStore.clear(for: path)
@@ -423,32 +336,22 @@ final class AppState {
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
             onStatusChange: { [weak self] status in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if let idx = self.projects.firstIndex(where: { $0.id == project.id }) {
-                        self.projects[idx].status = status
-                    }
-                }
+                Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
         )
         logStreams[path] = stream
 
         Task { [weak self] in
-            for await chunk in stream {
-                self?.logStore.append(chunk, for: path)
-            }
+            for await chunk in stream { self?.logStore.append(chunk, for: path) }
             guard let self else { return }
             await self.processManager.stop(projectPath: project.path)
-            if let idx = self.projects.firstIndex(where: { $0.id == project.id }) {
-                self.projects[idx].status = .idle
-            }
+            self.updateProjectStatus(project, to: .idle)
         }
     }
 
-    /// 全新构建（删除 node_modules 后重装再打包）
     func cleanBuildProject(_ project: Project) async {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
-        projects[index].status = .installing
+        guard projects.contains(where: { $0.id == project.id }) else { return }
+        updateProjectStatus(project, to: .installing)
 
         let path = project.path.path
         logStore.clear(for: path)
@@ -458,31 +361,21 @@ final class AppState {
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
             onStatusChange: { [weak self] status in
-                Task { @MainActor in
-                    guard let self else { return }
-                    if let idx = self.projects.firstIndex(where: { $0.id == project.id }) {
-                        self.projects[idx].status = status
-                    }
-                }
+                Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
         )
         logStreams[path] = stream
 
         Task { [weak self] in
-            for await chunk in stream {
-                self?.logStore.append(chunk, for: path)
-            }
+            for await chunk in stream { self?.logStore.append(chunk, for: path) }
             guard let self else { return }
-            if let idx = self.projects.firstIndex(where: { $0.id == project.id }) {
-                self.projects[idx].status = .idle
-            }
+            self.updateProjectStatus(project, to: .idle)
         }
     }
 
-    /// 重装依赖
     func reinstallProject(_ project: Project) async {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }) else { return }
-        projects[index].status = .installing
+        guard projects.contains(where: { $0.id == project.id }) else { return }
+        updateProjectStatus(project, to: .installing)
 
         let path = project.path.path
         logStore.clear(for: path)
@@ -492,106 +385,30 @@ final class AppState {
         logStreams[path] = stream
 
         Task { [weak self] in
-            for await chunk in stream {
-                self?.logStore.append(chunk, for: path)
-            }
+            for await chunk in stream { self?.logStore.append(chunk, for: path) }
             guard let self else { return }
             await self.processManager.stop(projectPath: project.path)
-            if let idx = self.projects.firstIndex(where: { $0.id == project.id }) {
-                self.projects[idx].status = .idle
-            }
+            self.updateProjectStatus(project, to: .idle)
         }
     }
 
-    /// 切换底部日志面板：点击同一项目关闭面板，点击不同项目切换显示
     func toggleLogPanel(for project: Project) {
-        if logViewingProjectID == project.id {
-            logViewingProjectID = nil
-        } else {
-            logViewingProjectID = project.id
-        }
+        logViewingProjectID = (logViewingProjectID == project.id) ? nil : project.id
     }
 
     // MARK: - 快捷操作
 
-    /// 在 Finder 中打开项目目录
     func revealInFinder(_ project: Project) {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.path.path)
     }
 
-    /// 在指定编辑器中打开项目（直接使用 .app 路径，与 Finder"打开方式"行为一致）
     func openInEditor(_ project: Project, editor: EditorInfo) {
         NSWorkspace.shared.open(
-            [project.path],
-            withApplicationAt: editor.appURL,
+            [project.path], withApplicationAt: editor.appURL,
             configuration: NSWorkspace.OpenConfiguration()
         )
     }
 
-    /// 检测系统已安装的编辑器，获取真实应用名称和路径
-    func detectEditors() async {
-        var found: [EditorInfo] = []
-        for bundleID in Self.editorBundleIDs {
-            if let info = await findEditorInfo(bundleID: bundleID) {
-                found.append(info)
-            }
-        }
-        detectedEditors = found
-
-        // 检测 HBuilderX
-        hbuilderxInfo = nil
-        for bundleID in Self.hbuilderxBundleIDs {
-            if let info = await findEditorInfo(bundleID: bundleID) {
-                hbuilderxInfo = info
-                break
-            }
-        }
-
-        // 检测微信开发者工具
-        wechatDevToolsInfo = nil
-        for bundleID in Self.wechatDevToolsBundleIDs {
-            if let info = await findEditorInfo(bundleID: bundleID) {
-                wechatDevToolsInfo = info
-                break
-            }
-        }
-    }
-
-    /// 通过 Spotlight 查找应用，返回实际显示名称和路径
-    private func findEditorInfo(bundleID: String) async -> EditorInfo? {
-        await Task.detached {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
-            proc.arguments = ["kMDItemCFBundleIdentifier == '\(bundleID)'"]
-            let pipe = Pipe()
-            proc.standardOutput = pipe
-            proc.standardError = FileHandle.nullDevice
-            do {
-                try proc.run()
-                proc.waitUntilExit()
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-                if let output = String(data: data, encoding: .utf8) {
-                    let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
-                        .components(separatedBy: "\n").first
-                    if let path, !path.isEmpty {
-                        let url = URL(fileURLWithPath: path)
-                        if FileManager.default.fileExists(atPath: path) {
-                            // 使用系统本地化显示名称（与 Finder 中显示一致）
-                            let displayName = FileManager.default.displayName(atPath: path)
-                            return EditorInfo(
-                                id: bundleID,
-                                displayName: displayName,
-                                appURL: url
-                            )
-                        }
-                    }
-                }
-            } catch {}
-            return nil
-        }.value
-    }
-
-    /// 在终端中打开项目目录
     func openInTerminal(_ project: Project) {
         let script = """
         tell application "Terminal"
@@ -607,82 +424,136 @@ final class AppState {
         }
     }
 
-    /// 将项目移到废纸篓
     func trashProject(_ project: Project) async {
-        // 先停止正在运行的进程
-        if project.status != .idle {
-            await stopProject(project)
-        }
+        if project.status != .idle { await stopProject(project) }
 
-        // 从置顶列表中移除
         pinnedProjectPaths.remove(project.path.path)
-        if let data = try? JSONEncoder().encode(pinnedProjectPaths) {
-            UserDefaults.standard.set(data, forKey: savedPinnedKey)
-        }
+        savePinnedPaths()
 
-        // 移到废纸篓
         do {
             try FileManager.default.trashItem(at: project.path, resultingItemURL: nil)
-            // 从项目列表中移除
             projects.removeAll { $0.id == project.id }
+            projectsRevision += 1
         } catch {
             print("移到废纸篓失败: \(error)")
         }
     }
 
-    /// 批量删除所有项目的构建产物（构建输出目录和压缩包）
+    // MARK: - 批量操作
+
     func deleteAllBuilds() async {
         isBatchOperating = true
-        let projectInfos = projects.map { (path: $0.path, outDir: $0.buildOutDir) }
+        let projectInfos = projects.map { (id: $0.id, path: $0.path, outDir: $0.buildOutDir) }
 
         let deleted = await Task.detached {
             let fm = FileManager.default
             var count = 0
-            for (path, outDir) in projectInfos {
+            for (_, path, outDir) in projectInfos {
                 let dist = path.appendingPathComponent(outDir)
                 let zip = path.appendingPathComponent("\(outDir).zip")
-                if fm.fileExists(atPath: dist.path) {
-                    try? fm.removeItem(at: dist)
-                    count += 1
-                }
-                if fm.fileExists(atPath: zip.path) {
-                    try? fm.removeItem(at: zip)
-                    count += 1
-                }
+                if fm.fileExists(atPath: dist.path) { try? fm.removeItem(at: dist); count += 1 }
+                if fm.fileExists(atPath: zip.path) { try? fm.removeItem(at: zip); count += 1 }
             }
             return count
         }.value
+
+        // 更新项目结构体中的磁盘占用数据
+        for info in projectInfos {
+            if let idx = projects.firstIndex(where: { $0.id == info.id }) {
+                projects[idx].distSize = 0
+                projects[idx].distZipSize = 0
+            }
+        }
+        projectsRevision += 1
 
         isBatchOperating = false
         toastMessage = "已删除 \(deleted) 个构建产物"
     }
 
-    /// 批量删除所有项目的依赖（node_modules）
     func deleteAllDependencies() async {
         isBatchOperating = true
-        let projectPaths = projects.map(\.path)
+        let projectInfos = projects.map { (id: $0.id, path: $0.path) }
 
         let deleted = await Task.detached {
             let fm = FileManager.default
             var count = 0
-            for path in projectPaths {
+            for (_, path) in projectInfos {
                 let nm = path.appendingPathComponent("node_modules")
-                if fm.fileExists(atPath: nm.path) {
-                    try? fm.removeItem(at: nm)
-                    count += 1
-                }
+                if fm.fileExists(atPath: nm.path) { try? fm.removeItem(at: nm); count += 1 }
             }
             return count
         }.value
+
+        // 更新项目结构体中的依赖数据
+        for info in projectInfos {
+            if let idx = projects.firstIndex(where: { $0.id == info.id }) {
+                projects[idx].nodeModulesSize = 0
+                projects[idx].hasNodeModules = false
+            }
+        }
+        projectsRevision += 1
 
         isBatchOperating = false
         toastMessage = "已删除 \(deleted) 个依赖目录"
     }
 
+    // MARK: - 编辑器检测
+
+    func detectEditors() async {
+        var found: [EditorInfo] = []
+        for bundleID in Self.editorBundleIDs {
+            if let info = await findEditorInfo(bundleID: bundleID) { found.append(info) }
+        }
+        detectedEditors = found
+
+        hbuilderxInfo = nil
+        for bundleID in Self.hbuilderxBundleIDs {
+            if let info = await findEditorInfo(bundleID: bundleID) { hbuilderxInfo = info; break }
+        }
+
+        wechatDevToolsInfo = nil
+        for bundleID in Self.wechatDevToolsBundleIDs {
+            if let info = await findEditorInfo(bundleID: bundleID) { wechatDevToolsInfo = info; break }
+        }
+    }
+
+    private func findEditorInfo(bundleID: String) async -> EditorInfo? {
+        await Task.detached {
+            let proc = Process()
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/mdfind")
+            proc.arguments = ["kMDItemCFBundleIdentifier == '\(bundleID)'"]
+            let pipe = Pipe()
+            proc.standardOutput = pipe
+            proc.standardError = FileHandle.nullDevice
+            do {
+                try proc.run()
+                proc.waitUntilExit()
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                if let output = String(data: data, encoding: .utf8) {
+                    let path = output.trimmingCharacters(in: .whitespacesAndNewlines)
+                        .components(separatedBy: "\n").first
+                    if let path, !path.isEmpty, FileManager.default.fileExists(atPath: path) {
+                        return EditorInfo(
+                            id: bundleID,
+                            displayName: FileManager.default.displayName(atPath: path),
+                            appURL: URL(fileURLWithPath: path)
+                        )
+                    }
+                }
+            } catch {}
+            return nil
+        }.value
+    }
+
     // MARK: - 应用退出清理
 
-    /// 停止所有进程（应用退出时调用）
-    func cleanup() async {
-        await processManager.stopAll()
+    func cleanup() async { await processManager.stopAll() }
+
+    // MARK: - 私有工具方法
+
+    private func savePinnedPaths() {
+        if let data = try? JSONEncoder().encode(pinnedProjectPaths) {
+            UserDefaults.standard.set(data, forKey: savedPinnedKey)
+        }
     }
 }
