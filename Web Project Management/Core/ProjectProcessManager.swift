@@ -239,8 +239,7 @@ actor ProjectProcessManager {
                 await self.setupPipeReadingForSession(pipe: buildOut, path: path)
                 await self.setupPipeReadingForSession(pipe: buildErr, path: path)
 
-                buildProcess.terminationHandler = { [weak self] bProc in
-                    guard let self else { return }
+                buildProcess.terminationHandler = { bProc in
                     Task {
                         await self.handleTermination(path: path, exitCode: bProc.terminationStatus)
 

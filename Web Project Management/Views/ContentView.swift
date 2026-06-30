@@ -153,15 +153,26 @@ struct ContentView: View {
                     Spacer()
 
                     // 总磁盘占用
-                    let totalUsage = appState.projects.reduce(Int64(0)) { $0 + $1.totalDiskUsage }
-                    if totalUsage > 0 {
+                    let isEnriching = appState.projects.contains { !$0.isEnriched }
+                    if isEnriching {
                         HStack(spacing: 4) {
                             Image(systemName: "internaldrive")
                                 .font(.caption2)
-                            Text(infoFormatDiskSize(totalUsage))
+                            Text("计算中")
                                 .font(.caption)
                         }
                         .foregroundStyle(.secondary)
+                    } else {
+                        let totalUsage = appState.projects.reduce(Int64(0)) { $0 + $1.totalDiskUsage }
+                        if totalUsage > 0 {
+                            HStack(spacing: 4) {
+                                Image(systemName: "internaldrive")
+                                    .font(.caption2)
+                                Text(infoFormatDiskSize(totalUsage))
+                                    .font(.caption)
+                            }
+                            .foregroundStyle(.secondary)
+                        }
                     }
 
                     if hasActiveFilters {
@@ -218,7 +229,10 @@ struct ContentView: View {
                             ProjectCardView(
                                 project: project,
                                 appState: appState,
-                                isPinned: appState.pinnedProjectPaths.contains(project.path.path)
+                                isPinned: appState.pinnedProjectPaths.contains(project.path.path),
+                                hasEditors: !appState.detectedEditors.isEmpty,
+                                hbuilderxInfo: appState.hbuilderxInfo,
+                                wechatDevToolsInfo: appState.wechatDevToolsInfo
                             )
                             .equatable()
                         }

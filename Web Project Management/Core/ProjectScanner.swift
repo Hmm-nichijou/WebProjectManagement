@@ -5,14 +5,11 @@ import Foundation
 
 struct ProjectScanner: Sendable {
 
-    /// 扫描根目录，返回所有识别到的 Web 项目
-    /// - Parameter rootURL: 用户选择的项目集根目录
-    /// - Returns: 扫描到的项目数组
-    func scan(rootURL: URL) async throws -> [Project] {
+    /// 快速扫描根目录，返回所有识别到的 Web 项目（不含 git 和磁盘占用）
+    func scanQuick(rootURL: URL) async throws -> [Project] {
         let fm = FileManager.default
         var projects: [Project] = []
 
-        // 仅扫描第一层子目录
         let contents = try fm.contentsOfDirectory(
             at: rootURL,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -23,7 +20,7 @@ struct ProjectScanner: Sendable {
             let isDir = (try? itemURL.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             guard isDir else { continue }
 
-            if let project = try? await scanDirectory(itemURL) {
+            if let project = try? scanDirectoryQuick(itemURL) {
                 projects.append(project)
             }
         }
@@ -31,16 +28,44 @@ struct ProjectScanner: Sendable {
         return projects.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    // MARK: - 扫描单个目录（公开方法）
-
-    /// 扫描单个项目目录，返回识别到的项目信息
-    func scanSingle(projectURL: URL) async throws -> Project {
-        try await scanDirectory(projectURL)
+    /// 快速扫描单个项目目录（不含 git 和磁盘占用）
+    func scanSingleQuick(projectURL: URL) throws -> Project {
+        try scanDirectoryQuick(projectURL)
     }
 
-    // MARK: - 扫描单个目录（内部）
+    /// 深度扫描：git 分支/状态 + 磁盘占用（git 和磁盘并发执行）
+    func scanDeep(project: Project) async -> Project {
+        let url = project.path
+        async let gitBranch = detectGitBranch(at: url)
+        async let gitStatus = detectGitStatus(at: url)
+        async let diskUsage = calculateDiskUsage(at: url, buildOutDir: project.buildOutDir)
 
-    private func scanDirectory(_ url: URL) async throws -> Project {
+        let branch = await gitBranch
+        let status = await gitStatus
+        let usage = await diskUsage
+
+        return Project(
+            id: project.id,
+            name: project.name,
+            path: project.path,
+            frameworkType: project.frameworkType,
+            packageManager: project.packageManager,
+            scripts: project.scripts,
+            hasNodeModules: project.hasNodeModules,
+            buildOutDir: project.buildOutDir,
+            gitBranch: branch,
+            gitStatus: status,
+            nodeModulesSize: usage.nodeModules,
+            distSize: usage.dist,
+            distZipSize: usage.distZip,
+            isEnriched: true,
+            status: project.status
+        )
+    }
+
+    // MARK: - 快速扫描单个目录（内部）
+
+    private func scanDirectoryQuick(_ url: URL) throws -> Project {
         let fm = FileManager.default
         let name = url.lastPathComponent
         let packageJSONPath = url.appendingPathComponent("package.json")
@@ -50,10 +75,8 @@ struct ProjectScanner: Sendable {
         var packageManager: PackageManagerType? = nil
         let hasNodeModules = fm.fileExists(atPath: url.appendingPathComponent("node_modules").path)
 
-        // 检测包管理器类型（通过锁文件）
         packageManager = detectPackageManager(at: url)
 
-        // 解析 package.json（只读一次）
         var packageJSON: [String: Any]?
         if fm.fileExists(atPath: packageJSONPath.path) {
             if let data = try? Data(contentsOf: packageJSONPath),
@@ -65,32 +88,20 @@ struct ProjectScanner: Sendable {
             }
         }
 
-        // 优先基于特征文件检测（不依赖 package.json）
         if let uniAppType = detectUniAppType(at: url) {
             frameworkType = uniAppType
         } else if detectWeChatMiniProgram(at: url) {
             frameworkType = .wechatMiniProgram
         } else if let json = packageJSON {
-            // 通过 package.json 依赖识别框架
             frameworkType = detectFramework(from: json)
         } else {
-            // 无 package.json，检查是否为 HTML 静态项目
             let indexPath = url.appendingPathComponent("index.html")
             if fm.fileExists(atPath: indexPath.path) {
                 frameworkType = .htmlStatic
             }
-            // 无法识别的项目类型保持 .unknown
         }
 
-        // 检测 git 当前分支和状态
-        let gitBranch = await detectGitBranch(at: url)
-        let gitStatus = await detectGitStatus(at: url)
-
-        // 检测构建输出目录（从 vite.config 读取 outDir，默认 dist）
         let buildOutDir = detectBuildOutDir(at: url)
-
-        // 计算磁盘占用
-        let diskUsage = await calculateDiskUsage(at: url, buildOutDir: buildOutDir)
 
         return Project(
             name: name,
@@ -99,12 +110,7 @@ struct ProjectScanner: Sendable {
             packageManager: packageManager,
             scripts: scripts,
             hasNodeModules: hasNodeModules,
-            buildOutDir: buildOutDir,
-            gitBranch: gitBranch,
-            gitStatus: gitStatus,
-            nodeModulesSize: diskUsage.nodeModules,
-            distSize: diskUsage.dist,
-            distZipSize: diskUsage.distZip
+            buildOutDir: buildOutDir
         )
     }
 

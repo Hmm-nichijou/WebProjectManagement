@@ -205,33 +205,64 @@ final class AppState {
 
     // MARK: - 项目扫描
 
-    /// 扫描根目录下的所有 Web 项目
+    /// 扫描根目录下的所有 Web 项目（两阶段：快速展示 + 后台补充）
     func scanProjects() async {
         guard let root = rootDirectory else { return }
         isScanning = true
-        defer { isScanning = false }
 
         let scanner = ProjectScanner()
         do {
-            projects = try await scanner.scan(rootURL: root)
+            // 第一阶段：快速扫描，立即展示列表（不含 git 和磁盘占用）
+            projects = try await scanner.scanQuick(rootURL: root)
+            isScanning = false
+
+            // 第二阶段：后台并发补充 git 和磁盘数据
+            await withTaskGroup(of: (UUID, Project).self) { group in
+                for project in projects {
+                    group.addTask {
+                        let enriched = await scanner.scanDeep(project: project)
+                        return (project.id, enriched)
+                    }
+                }
+                for await (id, enriched) in group {
+                    if let index = projects.firstIndex(where: { $0.id == id }) {
+                        // 保留运行状态
+                        var updated = enriched
+                        updated.status = projects[index].status
+                        projects[index] = updated
+                    }
+                }
+            }
         } catch {
+            isScanning = false
             print("扫描失败: \(error)")
         }
     }
 
-    /// 刷新单个项目（保留运行状态）
+    /// 刷新单个项目（先进入 loading，再深度扫描）
     func refreshProject(_ project: Project) async {
+        // 先标记为未补充，卡片进入 loading 状态
+        if let index = projects.firstIndex(where: { $0.id == project.id }) {
+            var loading = projects[index]
+            loading = Project(
+                id: loading.id, name: loading.name, path: loading.path,
+                frameworkType: loading.frameworkType, packageManager: loading.packageManager,
+                scripts: loading.scripts, hasNodeModules: loading.hasNodeModules,
+                buildOutDir: loading.buildOutDir,
+                gitBranch: loading.gitBranch, gitStatus: loading.gitStatus,
+                nodeModulesSize: loading.nodeModulesSize,
+                distSize: loading.distSize, distZipSize: loading.distZipSize,
+                isEnriched: false, status: loading.status
+            )
+            projects[index] = loading
+        }
+
         let scanner = ProjectScanner()
-        let currentStatus = project.status
-        do {
-            let refreshed = try await scanner.scanSingle(projectURL: project.path)
-            if let index = projects.firstIndex(where: { $0.id == project.id }) {
-                var updated = refreshed
-                updated.status = currentStatus
-                projects[index] = updated
-            }
-        } catch {
-            print("刷新项目失败: \(error)")
+        let enriched = await scanner.scanDeep(project: project)
+        if let index = projects.firstIndex(where: { $0.id == project.id }) {
+            var updated = enriched
+            updated.status = projects[index].status
+            projects[index] = updated
         }
     }
 

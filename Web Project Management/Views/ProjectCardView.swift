@@ -8,6 +8,9 @@ struct ProjectCardView: View, Equatable {
     let project: Project
     let appState: AppState
     let isPinned: Bool
+    let hasEditors: Bool
+    let hbuilderxInfo: EditorInfo?
+    let wechatDevToolsInfo: EditorInfo?
 
     @State private var showBuildOptions = false
     @State private var showTrashConfirm = false
@@ -19,7 +22,11 @@ struct ProjectCardView: View, Equatable {
         lhs.project.name == rhs.project.name &&
         lhs.project.gitStatus == rhs.project.gitStatus &&
         lhs.project.hasNodeModules == rhs.project.hasNodeModules &&
-        lhs.isPinned == rhs.isPinned
+        lhs.project.isEnriched == rhs.project.isEnriched &&
+        lhs.isPinned == rhs.isPinned &&
+        lhs.hasEditors == rhs.hasEditors &&
+        lhs.hbuilderxInfo == rhs.hbuilderxInfo &&
+        lhs.wechatDevToolsInfo == rhs.wechatDevToolsInfo
     }
 
     var body: some View {
@@ -80,7 +87,16 @@ struct ProjectCardView: View, Equatable {
                 }
             }
 
-            if let branch = project.gitBranch {
+            if !project.isEnriched {
+                HStack(spacing: 4) {
+                    Image(systemName: "circle.dashed")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text("加载中")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let branch = project.gitBranch {
                 HStack(spacing: 4) {
                     Image("gitbranch")
                         .resizable()
@@ -223,12 +239,12 @@ struct ProjectCardView: View, Equatable {
                     Label("在 Finder 中打开", systemImage: "folder")
                 }
 
-                if !appState.detectedEditors.isEmpty
-                    || (project.frameworkType.isUniApp && appState.hbuilderxInfo != nil)
-                    || (project.frameworkType == .wechatMiniProgram && appState.wechatDevToolsInfo != nil) {
+                if hasEditors
+                    || (project.frameworkType.isUniApp && hbuilderxInfo != nil)
+                    || (project.frameworkType == .wechatMiniProgram && wechatDevToolsInfo != nil) {
                     Menu("在编辑器中打开") {
                         // uni-app 项目在顶部显示 HBuilderX
-                        if project.frameworkType.isUniApp, let hbuilderx = appState.hbuilderxInfo {
+                        if project.frameworkType.isUniApp, let hbuilderx = hbuilderxInfo {
                             Button {
                                 appState.openInEditor(project, editor: hbuilderx)
                             } label: {
@@ -241,7 +257,7 @@ struct ProjectCardView: View, Equatable {
                             Divider()
                         }
                         // 微信小程序项目在顶部显示微信开发者工具
-                        if project.frameworkType == .wechatMiniProgram, let devtools = appState.wechatDevToolsInfo {
+                        if project.frameworkType == .wechatMiniProgram, let devtools = wechatDevToolsInfo {
                             Button {
                                 appState.openInEditor(project, editor: devtools)
                             } label: {

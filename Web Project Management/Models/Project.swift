@@ -63,6 +63,7 @@ struct Project: Identifiable, Sendable {
     let nodeModulesSize: Int64
     let distSize: Int64
     let distZipSize: Int64
+    let isEnriched: Bool
 
     /// 当前运行状态
     var status: ProjectStatus = .idle
@@ -85,6 +86,7 @@ struct Project: Identifiable, Sendable {
         nodeModulesSize: Int64 = 0,
         distSize: Int64 = 0,
         distZipSize: Int64 = 0,
+        isEnriched: Bool = false,
         status: ProjectStatus = .idle
     ) {
         self.id = id
@@ -100,6 +102,7 @@ struct Project: Identifiable, Sendable {
         self.nodeModulesSize = nodeModulesSize
         self.distSize = distSize
         self.distZipSize = distZipSize
+        self.isEnriched = isEnriched
         self.status = status
     }
 }
