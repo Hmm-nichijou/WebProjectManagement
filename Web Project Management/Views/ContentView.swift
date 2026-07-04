@@ -373,14 +373,14 @@ private struct SettingsSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
 
                 Button("保存") {
                     appState.saveCloudDriveURL(draftURL)
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(24)
@@ -431,7 +431,7 @@ private struct AddProjectSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .disabled(isCloning)
-                .buttonStyle(.glass)
+                .buttonStyle(.bordered)
 
                 Button("确定") {
                     isCloning = true
@@ -448,7 +448,7 @@ private struct AddProjectSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(gitURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCloning)
-                .buttonStyle(.glassProminent)
+                .buttonStyle(.borderedProminent)
             }
         }
         .padding(24)

@@ -7,7 +7,7 @@
 | 类别 | 技术 |
 |------|------|
 | 语言 | Swift 6（严格并发检查，`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`） |
-| UI 框架 | SwiftUI（macOS 26.5+） |
+| UI 框架 | SwiftUI（macOS 15.0+） |
 | 状态管理 | `@Observable`（Observation 框架） |
 | 并发模型 | Actor 隔离 + `AsyncStream` 日志流 |
 | 进程管理 | Foundation `Process` + `Pipe`（App Sandbox 已关闭） |
@@ -191,7 +191,7 @@ Web Project Management/
 
 ### 环境要求
 
-- macOS 26.5 或更高版本
+- macOS 15.0 或更高版本
 - Xcode 16+（需支持 Swift 6 严格并发）
 
 ### 构建步骤

@@ -474,16 +474,82 @@ actor ProjectProcessManager {
     /// 构建包含常见 Node.js 路径的环境变量
     private func buildEnvironment() -> [String: String] {
         var env = ProcessInfo.processInfo.environment
-        let extraPaths = [
+        let home = NSHomeDirectory()
+        var extraPaths: [String] = []
+
+        // nvm 的 `~/.nvm/versions/node/*/bin` 是 glob 通配符，Process 不经过 shell 不会展开，
+        // 需手动解析实际安装的版本目录（默认版本优先）
+        extraPaths.append(contentsOf: resolveNvmPaths(home: home))
+
+        extraPaths.append(contentsOf: [
             "/usr/local/bin",
             "/opt/homebrew/bin",
-            "\(NSHomeDirectory())/.npm-global/bin",
-            "\(NSHomeDirectory())/.nvm/versions/node/*/bin",
-            "\(NSHomeDirectory())/.volta/bin",
-            "\(NSHomeDirectory())/.fnm/aliases/default/bin",
-        ]
+            "\(home)/.npm-global/bin",
+            "\(home)/.volta/bin",
+            "\(home)/.fnm/aliases/default/bin",
+        ])
+
         let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = (extraPaths + [currentPath]).joined(separator: ":")
         return env
+    }
+
+    /// 解析 nvm 安装的 node 版本 bin 路径
+    /// nvm 默认版本通过 `~/.nvm/alias/default` 文件指向（可能是版本号或 lts/* 别名）
+    private func resolveNvmPaths(home: String) -> [String] {
+        let fm = FileManager.default
+        let versionsDir = "\(home)/.nvm/versions/node"
+        guard fm.fileExists(atPath: versionsDir),
+              let versions = try? fm.contentsOfDirectory(atPath: versionsDir) else {
+            return []
+        }
+
+        var paths: [String] = []
+
+        // 优先加入默认版本
+        if let defaultVersion = readNvmDefaultVersion(home: home) {
+            let binPath = "\(versionsDir)/\(defaultVersion)/bin"
+            if fm.fileExists(atPath: binPath) {
+                paths.append(binPath)
+            }
+        }
+
+        // 兜底：加入所有已安装版本（默认版本已在上方添加，这里去重）
+        for version in versions {
+            let binPath = "\(versionsDir)/\(version)/bin"
+            if fm.fileExists(atPath: binPath) && !paths.contains(binPath) {
+                paths.append(binPath)
+            }
+        }
+
+        return paths
+    }
+
+    /// 读取 nvm 默认版本（解析 `~/.nvm/alias/default`，支持版本号和 lts/* 别名引用）
+    private func readNvmDefaultVersion(home: String) -> String? {
+        let aliasPath = "\(home)/.nvm/alias/default"
+        guard let content = try? String(contentsOfFile: aliasPath, encoding: .utf8) else { return nil }
+        let raw = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty else { return nil }
+
+        // 处理别名引用（如 lts/hydrogen → 读取 ~/.nvm/alias/lts/hydrogen）
+        if raw.contains("/") {
+            let parts = raw.split(separator: "/")
+            if parts.count == 2 {
+                let refPath = "\(home)/.nvm/alias/\(parts[0])/\(parts[1])"
+                if let refContent = try? String(contentsOfFile: refPath, encoding: .utf8) {
+                    let refVersion = refContent.trimmingCharacters(in: .whitespacesAndNewlines)
+                    return normalizeNvmVersion(refVersion)
+                }
+            }
+            return nil
+        }
+
+        return normalizeNvmVersion(raw)
+    }
+
+    /// 规范化版本号（nvm 目录名为 v18.20.0 形式，alias 文件可能是 18.20.0 或 v18.20.0）
+    private func normalizeNvmVersion(_ version: String) -> String {
+        version.hasPrefix("v") ? version : "v\(version)"
     }
 }
