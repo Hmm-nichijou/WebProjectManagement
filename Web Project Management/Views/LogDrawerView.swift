@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - 底部统一终端面板
 // 显示在窗口底部，每次只展示一个项目的终端日志
 
+@MainActor
 struct BottomLogPanel: View {
     let project: Project
     let logStore: LogStore
@@ -50,12 +51,11 @@ struct BottomLogPanel: View {
                     logStore.clear(for: project.path.path)
                 }
 
-                // 关闭面板
-                PanelIconButton(icon: "xmark", tooltip: "关闭面板") {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                        appState.logViewingProjectID = nil
-                    }
+                // 关闭面板（支持 Esc 快捷键）
+                PanelIconButton(icon: "xmark", tooltip: "关闭面板 (Esc)") {
+                    closePanel()
                 }
+                .keyboardShortcut(.escape, modifiers: [])
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
@@ -111,6 +111,13 @@ struct BottomLogPanel: View {
                     displayEntries = current
                 }
             }
+        }
+    }
+
+    /// 关闭日志面板（带动画）
+    private func closePanel() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            appState.logViewingProjectID = nil
         }
     }
 }

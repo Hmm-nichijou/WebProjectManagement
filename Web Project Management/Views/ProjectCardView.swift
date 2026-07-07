@@ -4,6 +4,7 @@ import SwiftUI
 // 性能优化：卡片 body 仅读取 project 属性，不追踪任何全局 @Observable 状态
 // 这样日志写入、面板开关等操作不会触发其他卡片的重算
 
+@MainActor
 struct ProjectCardView: View, Equatable {
     let project: Project
     let appState: AppState
@@ -16,7 +17,7 @@ struct ProjectCardView: View, Equatable {
     @State private var showTrashConfirm = false
 
     /// Equatable：仅当 project 数据或置顶状态变化时才重算此卡片
-    static func == (lhs: ProjectCardView, rhs: ProjectCardView) -> Bool {
+    nonisolated static func == (lhs: ProjectCardView, rhs: ProjectCardView) -> Bool {
         lhs.project.id == rhs.project.id &&
         lhs.project.status == rhs.project.status &&
         lhs.project.name == rhs.project.name &&
@@ -253,10 +254,11 @@ struct ProjectCardView: View, Equatable {
                             Button {
                                 appState.openInEditor(project, editor: hbuilderx)
                             } label: {
-                                Label {
-                                    Text(hbuilderx.displayName)
-                                } icon: {
+                                HStack {
                                     hbuilderx.appIcon
+                                        .resizable()
+                                        .frame(width: 16, height: 16)
+                                    Text(hbuilderx.displayName)
                                 }
                             }
                             Divider()
@@ -266,10 +268,11 @@ struct ProjectCardView: View, Equatable {
                             Button {
                                 appState.openInEditor(project, editor: devtools)
                             } label: {
-                                Label {
-                                    Text(devtools.displayName)
-                                } icon: {
+                                HStack {
                                     devtools.appIcon
+                                        .resizable()
+                                        .frame(width: 16, height: 16)
+                                    Text(devtools.displayName)
                                 }
                             }
                             Divider()
@@ -278,10 +281,11 @@ struct ProjectCardView: View, Equatable {
                             Button {
                                 appState.openInEditor(project, editor: editor)
                             } label: {
-                                Label {
-                                    Text(editor.displayName)
-                                } icon: {
+                                HStack {
                                     editor.appIcon
+                                        .resizable()
+                                        .frame(width: 16, height: 16)
+                                    Text(editor.displayName)
                                 }
                             }
                         }

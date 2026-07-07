@@ -3,6 +3,7 @@ import SwiftUI
 // MARK: - 主内容视图
 // 根据应用状态显示引导界面或项目网格，底部附带统一终端面板
 
+@MainActor
 struct ContentView: View {
     @Bindable var appState: AppState
 
