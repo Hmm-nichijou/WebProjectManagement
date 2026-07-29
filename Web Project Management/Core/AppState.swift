@@ -1,6 +1,39 @@
 import SwiftUI
 import AppKit
 
+// MARK: - 打包格式
+
+enum PackageFormat: String, CaseIterable, Identifiable, Sendable {
+    case zip, tar
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .zip: ".zip"
+        case .tar: ".tar.gz"
+        }
+    }
+
+    /// 压缩包文件扩展名（含点）
+    var archiveExtension: String {
+        switch self {
+        case .zip: ".zip"
+        case .tar: ".tar.gz"
+        }
+    }
+
+    /// 给定构建输出目录名，返回压缩包文件名
+    /// - zip：使用构建目录名（如 dist.zip）
+    /// - tar：固定使用 archive.tar.gz
+    func archiveName(for outDir: String) -> String {
+        switch self {
+        case .zip: "\(outDir).zip"
+        case .tar: "archive.tar.gz"
+        }
+    }
+}
+
 // MARK: - 主题模式
 
 enum ThemeMode: String, CaseIterable, Identifiable, Sendable {
@@ -70,7 +103,10 @@ final class AppState {
     var isFirstLaunch = true
     var logViewingProjectID: UUID?
     var showAddProject = false
-    var cloudDriveURL: String = ""
+    /// 云盘网站地址（实时持久化）
+    var cloudDriveURL: String = "" {
+        didSet { UserDefaults.standard.set(cloudDriveURL, forKey: savedCloudDriveKey) }
+    }
 
     /// 置顶的项目路径集合（使用绝对路径而非 UUID，确保重新扫描后置顶状态不丢失）
     var pinnedProjectPaths: Set<String> = []
@@ -82,6 +118,11 @@ final class AppState {
     /// 主题模式（浅色/深色/跟随系统）
     var themeMode: ThemeMode = .system {
         didSet { UserDefaults.standard.set(themeMode.rawValue, forKey: savedThemeKey) }
+    }
+
+    /// 打包格式（.zip / .tar.gz）
+    var packageFormat: PackageFormat = .zip {
+        didSet { UserDefaults.standard.set(packageFormat.rawValue, forKey: savedPackageFormatKey) }
     }
 
     // MARK: - 私有 / 常量
@@ -104,6 +145,7 @@ final class AppState {
     private let savedCloudDriveKey = "savedCloudDriveURL"
     private let savedPinnedKey = "savedPinnedProjectIDs"
     private let savedThemeKey = "savedThemeMode"
+    private let savedPackageFormatKey = "savedPackageFormat"
 
     // MARK: - 初始化
 
@@ -118,12 +160,11 @@ final class AppState {
            let mode = ThemeMode(rawValue: str) {
             themeMode = mode
         }
+        if let str = UserDefaults.standard.string(forKey: savedPackageFormatKey),
+           let format = PackageFormat(rawValue: str) {
+            packageFormat = format
+        }
         Task { await detectEditors() }
-    }
-
-    func saveCloudDriveURL(_ url: String) {
-        cloudDriveURL = url
-        UserDefaults.standard.set(url, forKey: savedCloudDriveKey)
     }
 
     // MARK: - 目录管理
@@ -335,6 +376,7 @@ final class AppState {
         let stream = await processManager.build(
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
+            packageFormat: packageFormat,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
@@ -360,6 +402,7 @@ final class AppState {
         let stream = await processManager.cleanBuild(
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
+            packageFormat: packageFormat,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
@@ -450,9 +493,12 @@ final class AppState {
             var count = 0
             for (_, path, outDir) in projectInfos {
                 let dist = path.appendingPathComponent(outDir)
-                let zip = path.appendingPathComponent("\(outDir).zip")
                 if fm.fileExists(atPath: dist.path) { try? fm.removeItem(at: dist); count += 1 }
+                // 清理两种格式的压缩包，避免切换格式后旧包残留
+                let zip = path.appendingPathComponent("\(outDir).zip")
+                let tar = path.appendingPathComponent("archive.tar.gz")
                 if fm.fileExists(atPath: zip.path) { try? fm.removeItem(at: zip); count += 1 }
+                if fm.fileExists(atPath: tar.path) { try? fm.removeItem(at: tar); count += 1 }
             }
             return count
         }.value

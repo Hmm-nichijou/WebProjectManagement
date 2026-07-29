@@ -200,6 +200,15 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+
+                    // 当前打包格式
+                    HStack(spacing: 3) {
+                        Image(systemName: "archivebox")
+                            .font(.caption2)
+                        Text(appState.packageFormat.displayName)
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 10)
@@ -331,7 +340,6 @@ private struct ScanningOverlay: View {
 private struct SettingsSheet: View {
     @Bindable var appState: AppState
     @Environment(\.dismiss) private var dismiss
-    @State private var draftURL: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -353,11 +361,25 @@ private struct SettingsSheet: View {
                 .pickerStyle(.segmented)
             }
 
+            HStack {
+                Text("打包格式")
+                    .font(.headline)
+
+                Spacer()
+
+                Picker("", selection: $appState.packageFormat) {
+                    ForEach(PackageFormat.allCases) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 Text("云盘网站")
                     .font(.headline)
 
-                TextField("https://example.com", text: $draftURL)
+                TextField("https://example.com", text: $appState.cloudDriveURL)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 360)
 
@@ -375,20 +397,10 @@ private struct SettingsSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .buttonStyle(.bordered)
-
-                Button("保存") {
-                    appState.saveCloudDriveURL(draftURL)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
             }
         }
         .padding(24)
-        .frame(width: 440, height: 280)
-        .onAppear {
-            draftURL = appState.cloudDriveURL
-        }
+        .frame(width: 440, height: 340)
     }
 }
 

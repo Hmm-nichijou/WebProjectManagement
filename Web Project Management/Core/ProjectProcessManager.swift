@@ -89,7 +89,7 @@ actor ProjectProcessManager {
 
     // MARK: - 执行构建
 
-    func build(project: Project, cloudDriveURL: String? = nil, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
+    func build(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
         let path = project.path.path
         let session = Session()
         let packageManager = project.packageManager ?? .npm
@@ -105,9 +105,9 @@ actor ProjectProcessManager {
         // 先清理旧的构建输出目录和压缩包
         let outDir = project.buildOutDir
         let distURL = project.path.appendingPathComponent(outDir)
-        let distZipURL = project.path.appendingPathComponent("\(outDir).zip")
+        let archiveURL = project.path.appendingPathComponent(packageFormat.archiveName(for: outDir))
         clearDirectory(distURL)
-        try? FileManager.default.removeItem(at: distZipURL)
+        try? FileManager.default.removeItem(at: archiveURL)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -139,7 +139,7 @@ actor ProjectProcessManager {
                     let dist = projectPath.appendingPathComponent(outDir)
                     if FileManager.default.fileExists(atPath: dist.path) {
                         onStatusChange?(.compressing)
-                        await self.zipDist(projectPath: projectPath, path: path, outDir: outDir)
+                        await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
 
                         // 压缩完成后在浏览器中打开云盘网站
                         if let urlStr = cloudDriveURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
@@ -169,7 +169,7 @@ actor ProjectProcessManager {
 
     // MARK: - 全新构建（重装 + 打包）
 
-    func cleanBuild(project: Project, cloudDriveURL: String? = nil, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
+    func cleanBuild(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
         let path = project.path.path
         let session = Session()
         let packageManager = project.packageManager ?? .npm
@@ -178,7 +178,7 @@ actor ProjectProcessManager {
         let outDir = project.buildOutDir
         clearDirectory(project.path.appendingPathComponent("node_modules"))
         clearDirectory(project.path.appendingPathComponent(outDir))
-        try? FileManager.default.removeItem(at: project.path.appendingPathComponent("\(outDir).zip"))
+        try? FileManager.default.removeItem(at: project.path.appendingPathComponent(packageFormat.archiveName(for: outDir)))
 
         // 预计算环境变量（安装和构建共用）
         let env = buildEnvironment()
@@ -222,7 +222,7 @@ actor ProjectProcessManager {
 
                 // 清理构建输出目录准备构建
                 await self.clearDirectory(projectPath.appendingPathComponent(outDir))
-                try? FileManager.default.removeItem(at: projectPath.appendingPathComponent("\(outDir).zip"))
+                try? FileManager.default.removeItem(at: projectPath.appendingPathComponent(packageFormat.archiveName(for: outDir)))
 
                 let buildProcess = Process()
                 buildProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -247,7 +247,7 @@ actor ProjectProcessManager {
                             let dist = projectPath.appendingPathComponent(outDir)
                             if FileManager.default.fileExists(atPath: dist.path) {
                                 onStatusChange?(.compressing)
-                                await self.zipDist(projectPath: projectPath, path: path, outDir: outDir)
+                                await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
 
                                 if let urlStr = cloudDriveURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
                                     NSWorkspace.shared.open(url)
@@ -372,32 +372,39 @@ actor ProjectProcessManager {
     }
 
     /// 构建完成后压缩构建输出目录
-    private func zipDist(projectPath: URL, path: String, outDir: String) async {
+    private func archiveDist(projectPath: URL, path: String, outDir: String, format: PackageFormat) async {
         guard let session = sessions[path] else { return }
-        let zipName = "\(outDir).zip"
-        appendLog("[压缩] 正在打包 \(zipName)...\n", to: session)
+        let archiveName = format.archiveName(for: outDir)
+        appendLog("[压缩] 正在打包 \(archiveName)...\n", to: session)
 
-        let zipProcess = Process()
-        zipProcess.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
-        zipProcess.arguments = ["-r", zipName, outDir]
-        zipProcess.currentDirectoryURL = projectPath
+        let archiveProcess = Process()
+        archiveProcess.currentDirectoryURL = projectPath
+
+        switch format {
+        case .zip:
+            archiveProcess.executableURL = URL(fileURLWithPath: "/usr/bin/zip")
+            archiveProcess.arguments = ["-r", archiveName, outDir]
+        case .tar:
+            // tar -czvf archive.tar.gz ./dist
+            archiveProcess.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
+            archiveProcess.arguments = ["-czvf", archiveName, "./\(outDir)"]
+        }
 
         let outputPipe = Pipe()
         let errorPipe = Pipe()
-        zipProcess.standardOutput = outputPipe
-        zipProcess.standardError = errorPipe
+        archiveProcess.standardOutput = outputPipe
+        archiveProcess.standardError = errorPipe
 
         setupPipeReading(pipe: outputPipe, path: path, session: session)
         setupPipeReading(pipe: errorPipe, path: path, session: session)
 
         do {
-            try zipProcess.run()
-            // 等待 zip 进程完成
-            zipProcess.waitUntilExit()
-            if zipProcess.terminationStatus == 0 {
-                appendLog("[压缩] \(zipName) 打包完成 ✓\n", to: session)
+            try archiveProcess.run()
+            archiveProcess.waitUntilExit()
+            if archiveProcess.terminationStatus == 0 {
+                appendLog("[压缩] \(archiveName) 打包完成 ✓\n", to: session)
             } else {
-                appendLog("[压缩] \(zipName) 打包失败 (code: \(zipProcess.terminationStatus))\n", to: session)
+                appendLog("[压缩] \(archiveName) 打包失败 (code: \(archiveProcess.terminationStatus))\n", to: session)
             }
         } catch {
             appendLog("[错误] 压缩失败: \(error.localizedDescription)\n", to: session)
