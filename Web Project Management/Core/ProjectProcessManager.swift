@@ -102,12 +102,13 @@ actor ProjectProcessManager {
             buildScript = "build"
         }
 
-        // 先清理旧的构建输出目录和压缩包
+        // 先清理旧的构建输出目录和所有打包格式的压缩包（避免切换格式后旧包残留）
         let outDir = project.buildOutDir
         let distURL = project.path.appendingPathComponent(outDir)
-        let archiveURL = project.path.appendingPathComponent(packageFormat.archiveName(for: outDir))
         clearDirectory(distURL)
-        try? FileManager.default.removeItem(at: archiveURL)
+        for format in PackageFormat.allCases {
+            try? FileManager.default.removeItem(at: project.path.appendingPathComponent(format.archiveName(for: outDir)))
+        }
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
