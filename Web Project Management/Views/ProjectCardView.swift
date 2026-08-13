@@ -15,7 +15,7 @@ struct ProjectCardView: View, Equatable {
     @State private var showBuildOptions = false
     @State private var showTrashConfirm = false
 
-    /// Equatable：仅当 project 数据或置顶状态变化时才重算此卡片
+    // Equatable：仅当 project 数据或置顶状态变化时才重算此卡片
     static func == (lhs: ProjectCardView, rhs: ProjectCardView) -> Bool {
         lhs.project.id == rhs.project.id &&
         lhs.project.status == rhs.project.status &&
@@ -38,18 +38,7 @@ struct ProjectCardView: View, Equatable {
             cardBody
             cardActions
         }
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(.controlBackgroundColor))
-                .shadow(color: Color.primary.opacity(0.08), radius: 4, x: 0, y: 2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(
-                    isPinned ? Color.accentColor.opacity(0.3) : Color.primary.opacity(0.06),
-                    lineWidth: isPinned ? 1.5 : 1
-                )
-        )
+        .glassEffect(in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     // MARK: - 卡片头部
@@ -185,7 +174,7 @@ struct ProjectCardView: View, Equatable {
 
     private var cardActions: some View {
         HStack(spacing: 6) {
-            // unknown 和微信小程序项目不显示运行和构建按钮
+            // unknown、微信小程序、uni-app/uni-app x 项目不显示运行和构建按钮
             if project.frameworkType.supportsRunBuild {
                 // 启停按钮：仅关注运行状态，不受构建状态影响
                 if project.status == .running {
@@ -223,18 +212,19 @@ struct ProjectCardView: View, Equatable {
 
             Spacer()
 
-            // 日志按钮：仅非空闲项目显示（不读取 logStore，避免追踪日志变化）
-            if project.status != .idle {
-                IconOnlyButton(
-                    icon: "terminal",
-                    tint: Color(red: 0.4, green: 0.4, blue: 0.45),
-                    tooltip: "查看日志"
-                ) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        appState.toggleLogPanel(for: project)
-                    }
+            // 日志按钮：始终占位，空闲时透明且不可点，避免出现/消失导致卡片高度抖动
+            // （不读取 logStore，避免追踪日志变化）
+            IconOnlyButton(
+                icon: "terminal",
+                tint: Color(red: 0.4, green: 0.4, blue: 0.45),
+                tooltip: "查看日志"
+            ) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    appState.toggleLogPanel(for: project)
                 }
             }
+            .opacity(project.status != .idle ? 1 : 0)
+            .allowsHitTesting(project.status != .idle)
 
             // 更多操作
             Menu {
@@ -361,6 +351,9 @@ private struct StatusIndicator: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+        .padding(.horizontal,6)
+        .padding(.vertical,4)
+        .glassEffect()
     }
 }
 
@@ -430,13 +423,11 @@ private struct ActionButton: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(tint.opacity(isHovering ? 0.18 : 0.10))
-            )
+            .background(tint.opacity(isHovering ? 0.18 : 0.10),in: Capsule())
             .foregroundStyle(tint)
         }
         .buttonStyle(.plain)
+        .glassEffect(.regular.interactive())
         .onHover { hovering in isHovering = hovering }
     }
 }

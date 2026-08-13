@@ -46,8 +46,8 @@ enum FrameworkType: String, Sendable, CaseIterable {
         self == .uniapp || self == .uniappx
     }
 
-    /// 是否支持运行和构建操作（unknown 和微信小程序不支持）
+    /// 是否支持运行和构建操作（unknown、微信小程序、uni-app/uni-app x 不支持）
     nonisolated var supportsRunBuild: Bool {
-        self != .unknown && self != .wechatMiniProgram
+        self != .unknown && self != .wechatMiniProgram && !isUniApp
     }
 }

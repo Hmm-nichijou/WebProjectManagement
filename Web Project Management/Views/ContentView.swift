@@ -92,6 +92,7 @@ struct ContentView: View {
         .toolbar {
             toolbarContent
         }
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .navigationTitle("")
         .sheet(isPresented: $showSettings) {
             SettingsSheet(appState: appState)
@@ -211,7 +212,6 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 10)
-                .background(Color(.controlBackgroundColor))
 
                 // 搜索与筛选栏
                 SearchFilterBar(
@@ -547,76 +547,65 @@ private struct SearchFilterBar: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .glassEffect(.regular.interactive(),in: RoundedRectangle(cornerRadius: 10))
+            .glassEffect(.regular.interactive(),in: Capsule())
             .frame(maxWidth: 280)
 
-            Divider()
-                .frame(height: 20)
-                .opacity(0.4)
-
             // 框架类型筛选菜单
-            Menu {
-                Button("全部") { frameworkFilter = nil }
-                Divider()
-                ForEach(FrameworkType.allCases.filter { $0 != .unknown }, id: \.self) { fw in
-                    Button {
-                        frameworkFilter = frameworkFilter == fw ? nil : fw
-                    } label: {
-                        if frameworkFilter == fw {
-                            Label(fw.rawValue, systemImage: "checkmark")
-                        } else {
-                            Text(fw.rawValue)
+            HStack{
+                Menu {
+                    Button("全部") { frameworkFilter = nil }
+                    Divider()
+                    ForEach(FrameworkType.allCases.filter { $0 != .unknown }, id: \.self) { fw in
+                        Button {
+                            frameworkFilter = frameworkFilter == fw ? nil : fw
+                        } label: {
+                            if frameworkFilter == fw {
+                                Label(fw.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(fw.rawValue)
+                            }
                         }
                     }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: "square.grid.2x2")
-                        .font(.caption2)
-                    Text(frameworkFilter?.rawValue ?? "项目类型")
-                        .font(.caption)
-                        .lineLimit(1)
-                }
-                .foregroundStyle(frameworkFilter != nil ? frameworkFilter!.accentColor : Color.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(frameworkFilter != nil ? frameworkFilter!.accentColor.opacity(0.1) : Color.primary.opacity(0.05))
-                )
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-
-            // 运行状态筛选菜单
-            Menu {
-                Button("全部") { statusFilter = nil }
-                Divider()
-                ForEach([ProjectStatus.running, .installing, .building, .compressing], id: \.self) { status in
-                    Button {
-                        statusFilter = statusFilter == status ? nil : status
-                    } label: {
-                        Label(status.description, systemImage: statusFilter == status ? "checkmark" : status.iconName)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.grid.2x2")
+                            .font(.caption2)
+                        Text(frameworkFilter?.rawValue ?? "项目类型")
+                                                .font(.caption)
+                                                .lineLimit(1)
                     }
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: statusFilter?.iconName ?? "circle.dashed")
-                        .font(.caption2)
-                    Text(statusFilter?.description ?? "运行状态")
-                        .font(.caption)
-                        .lineLimit(1)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                
+                Divider()
+                    .frame(height: 12)
+                
+                // 运行状态筛选菜单
+                Menu {
+                    Button("全部") { statusFilter = nil }
+                    Divider()
+                    ForEach([ProjectStatus.running, .installing, .building, .compressing], id: \.self) { status in
+                        Button {
+                            statusFilter = statusFilter == status ? nil : status
+                        } label: {
+                            Label(status.description, systemImage: statusFilter == status ? "checkmark" : status.iconName)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: statusFilter?.iconName ?? "circle.dashed")
+                            .font(.caption2)
+                        Text(statusFilter?.description ?? "运行状态")
+                                                .font(.caption)
+                                                .lineLimit(1)
+                    }
                 }
-                .foregroundStyle(statusFilter != nil ? statusFilter!.color : Color.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(statusFilter != nil ? statusFilter!.color.opacity(0.1) : Color.primary.opacity(0.05))
-                )
+                .menuStyle(.borderlessButton)
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
+            .padding(7)
+            .glassEffect(in: Capsule())
 
             Spacer()
 
@@ -640,7 +629,6 @@ private struct SearchFilterBar: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 8)
-        .background(Color(.windowBackgroundColor))
     }
 }
 
