@@ -6,9 +6,9 @@ import AppKit
 enum PackageFormat: String, CaseIterable, Identifiable, Sendable {
     case zip, tar
 
-    var id: String { rawValue }
+    nonisolated var id: String { rawValue }
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .zip: ".zip"
         case .tar: ".tar.gz"
@@ -16,7 +16,7 @@ enum PackageFormat: String, CaseIterable, Identifiable, Sendable {
     }
 
     /// 压缩包文件扩展名（含点）
-    var archiveExtension: String {
+    nonisolated var archiveExtension: String {
         switch self {
         case .zip: ".zip"
         case .tar: ".tar.gz"
@@ -26,7 +26,7 @@ enum PackageFormat: String, CaseIterable, Identifiable, Sendable {
     /// 给定构建输出目录名，返回压缩包文件名
     /// - zip：使用构建目录名（如 dist.zip）
     /// - tar：固定使用 archive.tar.gz
-    func archiveName(for outDir: String) -> String {
+    nonisolated func archiveName(for outDir: String) -> String {
         switch self {
         case .zip: "\(outDir).zip"
         case .tar: "archive.tar.gz"
@@ -39,9 +39,9 @@ enum PackageFormat: String, CaseIterable, Identifiable, Sendable {
 enum ThemeMode: String, CaseIterable, Identifiable, Sendable {
     case light, dark, system
 
-    var id: String { rawValue }
+    nonisolated var id: String { rawValue }
 
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .light: "浅色"
         case .dark: "深色"
@@ -49,7 +49,7 @@ enum ThemeMode: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var colorScheme: ColorScheme? {
+    nonisolated var colorScheme: ColorScheme? {
         switch self {
         case .light: .light
         case .dark: .dark

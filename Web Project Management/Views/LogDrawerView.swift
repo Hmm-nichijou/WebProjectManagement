@@ -3,7 +3,6 @@ import SwiftUI
 // MARK: - 底部统一终端面板
 // 显示在窗口底部，每次只展示一个项目的终端日志
 
-@MainActor
 struct BottomLogPanel: View {
     let project: Project
     let logStore: LogStore

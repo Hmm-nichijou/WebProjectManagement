@@ -3,7 +3,6 @@ import SwiftUI
 // MARK: - 主内容视图
 // 根据应用状态显示引导界面或项目网格，底部附带统一终端面板
 
-@MainActor
 struct ContentView: View {
     @Bindable var appState: AppState
 
@@ -358,7 +357,8 @@ private struct SettingsSheet: View {
                         Text(mode.displayName).tag(mode)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.tabs)
+                .buttonBorderShape(.capsule)
             }
 
             HStack {
@@ -372,16 +372,34 @@ private struct SettingsSheet: View {
                         Text(format.displayName).tag(format)
                     }
                 }
-                .pickerStyle(.segmented)
+                .pickerStyle(.tabs)
+                .buttonBorderShape(.capsule)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("云盘网站")
                     .font(.headline)
 
-                TextField("https://example.com", text: $appState.cloudDriveURL)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 360)
+                HStack(spacing: 6) {
+                    TextField("https://example.com", text: $appState.cloudDriveURL)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+
+                    if !appState.cloudDriveURL.isEmpty {
+                        Button {
+                            appState.cloudDriveURL = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(Color(red: 0.55, green: 0.55, blue: 0.6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .glassEffect(in: RoundedRectangle(cornerRadius: 10))
+                .frame(minWidth: 360)
 
                 Text("构建并压缩完成后，自动在浏览器中打开此地址")
                     .font(.caption)
@@ -396,7 +414,8 @@ private struct SettingsSheet: View {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
             }
         }
         .padding(24)
@@ -423,10 +442,32 @@ private struct AddProjectSheet: View {
                 Text("项目 Git 地址")
                     .font(.headline)
 
-                TextField("https://github.com/user/repo.git", text: $gitURL)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(minWidth: 360)
-                    .disabled(isCloning)
+                HStack(spacing: 6) {
+                    Image(systemName: "branch")
+                        .font(.caption)
+                        .foregroundStyle(Color(red: 0.55, green: 0.55, blue: 0.6))
+
+                    TextField("https://github.com/user/repo.git", text: $gitURL)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                        .disabled(isCloning)
+
+                    if !gitURL.isEmpty {
+                        Button {
+                            gitURL = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(Color(red: 0.55, green: 0.55, blue: 0.6))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isCloning)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .glassEffect(in: RoundedRectangle(cornerRadius: 10))
+                .frame(minWidth: 360)
 
                 if let error = errorMessage {
                     Text(error)
@@ -444,7 +485,8 @@ private struct AddProjectSheet: View {
                 }
                 .keyboardShortcut(.cancelAction)
                 .disabled(isCloning)
-                .buttonStyle(.bordered)
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
 
                 Button("确定") {
                     isCloning = true
@@ -461,7 +503,8 @@ private struct AddProjectSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(gitURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isCloning)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
             }
         }
         .padding(24)
@@ -504,10 +547,7 @@ private struct SearchFilterBar: View {
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(0.06))
-            )
+            .glassEffect(.regular.interactive(),in: RoundedRectangle(cornerRadius: 10))
             .frame(maxWidth: 280)
 
             Divider()

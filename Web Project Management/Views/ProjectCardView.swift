@@ -4,7 +4,6 @@ import SwiftUI
 // 性能优化：卡片 body 仅读取 project 属性，不追踪任何全局 @Observable 状态
 // 这样日志写入、面板开关等操作不会触发其他卡片的重算
 
-@MainActor
 struct ProjectCardView: View, Equatable {
     let project: Project
     let appState: AppState
@@ -17,7 +16,7 @@ struct ProjectCardView: View, Equatable {
     @State private var showTrashConfirm = false
 
     /// Equatable：仅当 project 数据或置顶状态变化时才重算此卡片
-    nonisolated static func == (lhs: ProjectCardView, rhs: ProjectCardView) -> Bool {
+    static func == (lhs: ProjectCardView, rhs: ProjectCardView) -> Bool {
         lhs.project.id == rhs.project.id &&
         lhs.project.status == rhs.project.status &&
         lhs.project.name == rhs.project.name &&

@@ -4,16 +4,16 @@
 
 ## 技术栈
 
-| 类别 | 技术 |
-|------|------|
+| 类别 | 技术                                                                 |
+|------|----------------------------------------------------------------------|
 | 语言 | Swift 6（严格并发检查，`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`） |
-| UI 框架 | SwiftUI（macOS 15.0+） |
-| 状态管理 | `@Observable`（Observation 框架） |
-| 并发模型 | Actor 隔离 + `AsyncStream` 日志流 |
-| 进程管理 | Foundation `Process` + `Pipe`（App Sandbox 已关闭） |
-| 应用检测 | Spotlight `mdfind` + `NSWorkspace` |
-| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL、主题模式） |
-| 构建系统 | Xcode 16+，`PBXFileSystemSynchronizedRootGroup`（源文件自动包含） |
+| UI 框架 | SwiftUI（macOS 27.0+）                                               |
+| 状态管理 | `@Observable`（Observation 框架）                                    |
+| 并发模型 | Actor 隔离 + `AsyncStream` 日志流                                    |
+| 进程管理 | Foundation `Process` + `Pipe`（App Sandbox 已关闭）                  |
+| 应用检测 | Spotlight `mdfind` + `NSWorkspace`                                   |
+| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL、主题模式）             |
+| 构建系统 | Xcode 16+，`PBXFileSystemSynchronizedRootGroup`（源文件自动包含）    |
 
 ## 架构概览
 
@@ -191,7 +191,7 @@ Web Project Management/
 
 ### 环境要求
 
-- macOS 15.0 或更高版本
+- macOS 27.0 或更高版本
 - Xcode 16+（需支持 Swift 6 严格并发）
 
 ### 构建步骤

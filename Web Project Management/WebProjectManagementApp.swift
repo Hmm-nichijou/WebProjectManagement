@@ -4,7 +4,6 @@ import AppKit
 // MARK: - Web Project Management 应用入口
 
 @main
-@MainActor
 struct WebProjectManagementApp: App {
 
     @State private var appState = AppState()
