@@ -12,7 +12,7 @@ struct WebProjectManagementApp: App {
         WindowGroup {
             ContentView(appState: appState)
                 .frame(minWidth: 720, minHeight: 500)
-                .preferredColorScheme(appState.themeMode.colorScheme)
+                .background(WindowAppearanceSyncer(themeMode: appState.themeMode))
                 .background(WindowFrameAutosaver())
         }
         .defaultSize(width: 1100, height: 720)
@@ -115,5 +115,66 @@ private final class WindowFrameAutosaverView: NSView {
         for observer in observers {
             NotificationCenter.default.removeObserver(observer)
         }
+    }
+}
+
+// MARK: - 窗口外观同步
+// SwiftUI 的 .preferredColorScheme(.system → nil) 在设置弹窗打开期间，
+// 不会即时回退主窗口外观，主窗口背景会停留在之前的深色，直到弹窗关闭。
+// 根本原因是「跟随系统」要把窗口的 appearance 还原为 nil（继承应用/系统），
+// 而先前的「深色」可能把应用级 NSApp.appearance 也锁定在深色，导致仅把
+// window.appearance 置为 nil 仍会跟随到深色。
+// 这里改为直接控制 NSApp.appearance + window.appearance，彻底绕开该问题。
+
+private struct WindowAppearanceSyncer: NSViewRepresentable {
+    let themeMode: ThemeMode
+
+    func makeNSView(context: Context) -> NSView {
+        WindowAppearanceSyncerView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? WindowAppearanceSyncerView else { return }
+        view.apply(themeMode)
+    }
+}
+
+private final class WindowAppearanceSyncerView: NSView {
+    private var pendingMode: ThemeMode?
+
+    func apply(_ mode: ThemeMode) {
+        guard let window else {
+            pendingMode = mode
+            return
+        }
+        apply(mode, to: window)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let pendingMode, let window {
+            apply(pendingMode, to: window)
+            self.pendingMode = nil
+        }
+    }
+
+    private func apply(_ mode: ThemeMode, to window: NSWindow) {
+        let appAppearance: NSAppearance?
+        let windowAppearance: NSAppearance?
+        switch mode {
+        case .light:
+            appAppearance = NSAppearance(named: .aqua)
+            windowAppearance = NSAppearance(named: .aqua)
+        case .dark:
+            appAppearance = NSAppearance(named: .darkAqua)
+            windowAppearance = NSAppearance(named: .darkAqua)
+        case .system:
+            // nil 表示「跟随系统」：必须同时清掉应用级和窗口级外观，
+            // 否则窗口会继续沿用上一次显式设置的深色外观。
+            appAppearance = nil
+            windowAppearance = nil
+        }
+        NSApp.appearance = appAppearance
+        window.appearance = windowAppearance
     }
 }
