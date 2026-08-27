@@ -89,7 +89,7 @@ actor ProjectProcessManager {
 
     // MARK: - 执行构建
 
-    func build(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
+    func build(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, removeDistAfterArchive: Bool = false, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
         let path = project.path.path
         let session = Session()
         let packageManager = project.packageManager ?? .npm
@@ -140,7 +140,10 @@ actor ProjectProcessManager {
                     let dist = projectPath.appendingPathComponent(outDir)
                     if FileManager.default.fileExists(atPath: dist.path) {
                         onStatusChange?(.compressing)
-                        await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
+                        let archived = await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
+
+                        // 压缩成功后按设置删除构建输出文件夹
+                        await self.removeDistIfNeeded(projectPath: projectPath, path: path, outDir: outDir, enabled: archived && removeDistAfterArchive)
 
                         // 压缩完成后在浏览器中打开云盘网站
                         if let urlStr = cloudDriveURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
@@ -170,7 +173,7 @@ actor ProjectProcessManager {
 
     // MARK: - 全新构建（重装 + 打包）
 
-    func cleanBuild(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
+    func cleanBuild(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, removeDistAfterArchive: Bool = false, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
         let path = project.path.path
         let session = Session()
         let packageManager = project.packageManager ?? .npm
@@ -248,7 +251,10 @@ actor ProjectProcessManager {
                             let dist = projectPath.appendingPathComponent(outDir)
                             if FileManager.default.fileExists(atPath: dist.path) {
                                 onStatusChange?(.compressing)
-                                await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
+                                let archived = await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
+
+                                // 压缩成功后按设置删除构建输出文件夹
+                                await self.removeDistIfNeeded(projectPath: projectPath, path: path, outDir: outDir, enabled: archived && removeDistAfterArchive)
 
                                 if let urlStr = cloudDriveURL, !urlStr.isEmpty, let url = URL(string: urlStr) {
                                     NSWorkspace.shared.open(url)
@@ -372,9 +378,10 @@ actor ProjectProcessManager {
         }
     }
 
-    /// 构建完成后压缩构建输出目录
-    private func archiveDist(projectPath: URL, path: String, outDir: String, format: PackageFormat) async {
-        guard let session = sessions[path] else { return }
+    /// 构建完成后压缩构建输出目录，返回压缩是否成功
+    @discardableResult
+    private func archiveDist(projectPath: URL, path: String, outDir: String, format: PackageFormat) async -> Bool {
+        guard let session = sessions[path] else { return false }
         let archiveName = format.archiveName(for: outDir)
         appendLog("[压缩] 正在打包 \(archiveName)...\n", to: session)
 
@@ -404,12 +411,24 @@ actor ProjectProcessManager {
             archiveProcess.waitUntilExit()
             if archiveProcess.terminationStatus == 0 {
                 appendLog("[压缩] \(archiveName) 打包完成 ✓\n", to: session)
+                return true
             } else {
                 appendLog("[压缩] \(archiveName) 打包失败 (code: \(archiveProcess.terminationStatus))\n", to: session)
+                return false
             }
         } catch {
             appendLog("[错误] 压缩失败: \(error.localizedDescription)\n", to: session)
+            return false
         }
+    }
+
+    /// 压缩成功后按设置删除构建输出文件夹
+    private func removeDistIfNeeded(projectPath: URL, path: String, outDir: String, enabled: Bool) async {
+        guard enabled else { return }
+        guard let session = sessions[path] else { return }
+        let dist = projectPath.appendingPathComponent(outDir)
+        clearDirectory(dist)
+        appendLog("[清理] 已删除构建文件夹 \(outDir)\n", to: session)
     }
 
     /// 安全终止进程，防止僵尸进程

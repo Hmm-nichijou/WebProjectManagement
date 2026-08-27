@@ -176,8 +176,14 @@ struct ProjectCardView: View, Equatable {
         HStack(spacing: 6) {
             // unknown、微信小程序、uni-app/uni-app x 项目不显示运行和构建按钮
             if project.frameworkType.supportsRunBuild {
+                // H5 项目：显示"打开"按钮，直接在默认浏览器中打开 index.html
+                if project.frameworkType == .htmlStatic {
+                    ActionButton(icon: "safari.fill", label: "打开", tint: .green) {
+                        appState.openInBrowser(project)
+                    }
+                }
                 // 启停按钮：仅关注运行状态，不受构建状态影响
-                if project.status == .running {
+                else if project.status == .running {
                     ActionButton(icon: "stop.fill", label: "停止", tint: .red) {
                         Task { await appState.stopProject(project) }
                     }

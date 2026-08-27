@@ -377,6 +377,23 @@ private struct SettingsSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("压缩后删除构建文件夹")
+                        .font(.headline)
+
+                    Spacer()
+
+                    Toggle("", isOn: $appState.removeDistAfterArchive)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                Text("构建压缩完成后，自动删除构建输出文件夹（如 dist 文件夹）")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 Text("云盘网站")
                     .font(.headline)
 
@@ -419,7 +436,7 @@ private struct SettingsSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 440, height: 340)
+        .frame(width: 440, height: 420)
     }
 }
 
@@ -578,7 +595,7 @@ private struct SearchFilterBar: View {
                                 .font(.caption)
                                 .lineLimit(1)
                         }
-                        
+
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
@@ -605,7 +622,7 @@ private struct SearchFilterBar: View {
                                 .font(.caption)
                                 .lineLimit(1)
                         }
-                        
+
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()

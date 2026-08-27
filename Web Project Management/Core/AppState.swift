@@ -125,6 +125,11 @@ final class AppState {
         didSet { UserDefaults.standard.set(packageFormat.rawValue, forKey: savedPackageFormatKey) }
     }
 
+    /// 构建压缩完成后是否删除构建输出文件夹（默认不开启）
+    var removeDistAfterArchive: Bool = false {
+        didSet { UserDefaults.standard.set(removeDistAfterArchive, forKey: savedRemoveDistKey) }
+    }
+
     // MARK: - 私有 / 常量
 
     let processManager = ProjectProcessManager()
@@ -146,6 +151,7 @@ final class AppState {
     private let savedPinnedKey = "savedPinnedProjectIDs"
     private let savedThemeKey = "savedThemeMode"
     private let savedPackageFormatKey = "savedPackageFormat"
+    private let savedRemoveDistKey = "savedRemoveDistAfterArchive"
 
     // MARK: - 初始化
 
@@ -164,6 +170,7 @@ final class AppState {
            let format = PackageFormat(rawValue: str) {
             packageFormat = format
         }
+        removeDistAfterArchive = UserDefaults.standard.bool(forKey: savedRemoveDistKey)
         Task { await detectEditors() }
     }
 
@@ -377,6 +384,7 @@ final class AppState {
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
             packageFormat: packageFormat,
+            removeDistAfterArchive: removeDistAfterArchive,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
@@ -403,6 +411,7 @@ final class AppState {
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
             packageFormat: packageFormat,
+            removeDistAfterArchive: removeDistAfterArchive,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
@@ -440,6 +449,16 @@ final class AppState {
     }
 
     // MARK: - 快捷操作
+
+    /// H5 项目：在默认浏览器中打开项目目录下的 index.html
+    func openInBrowser(_ project: Project) {
+        let indexURL = project.path.appendingPathComponent("index.html")
+        guard FileManager.default.fileExists(atPath: indexURL.path) else {
+            toastMessage = "未找到 index.html"
+            return
+        }
+        NSWorkspace.shared.open(indexURL)
+    }
 
     func revealInFinder(_ project: Project) {
         NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: project.path.path)
