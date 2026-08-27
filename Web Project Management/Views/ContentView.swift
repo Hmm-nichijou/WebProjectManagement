@@ -240,7 +240,7 @@ struct ContentView: View {
                             statusFilter = nil
                         }
                         .font(.caption)
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.glass)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 80)
@@ -550,62 +550,70 @@ private struct SearchFilterBar: View {
             .glassEffect(.regular.interactive(),in: Capsule())
             .frame(maxWidth: 280)
 
-            // 框架类型筛选菜单
-            HStack{
-                Menu {
-                    Button("全部") { frameworkFilter = nil }
-                    Divider()
-                    ForEach(FrameworkType.allCases.filter { $0 != .unknown }, id: \.self) { fw in
-                        Button {
-                            frameworkFilter = frameworkFilter == fw ? nil : fw
-                        } label: {
-                            if frameworkFilter == fw {
-                                Label(fw.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(fw.rawValue)
+            // 框架类型 + 运行状态筛选
+            // 将 interactive 玻璃分别作用在每个可点击的 Menu 上，而非整块容器：
+            // 按下时只有被点击的那一项产生按压反馈，避免整块玻璃带动 label 抖动。
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    // 框架类型筛选菜单
+                    Menu {
+                        Button("全部") { frameworkFilter = nil }
+                        Divider()
+                        ForEach(FrameworkType.allCases.filter { $0 != .unknown }, id: \.self) { fw in
+                            Button {
+                                frameworkFilter = frameworkFilter == fw ? nil : fw
+                            } label: {
+                                if frameworkFilter == fw {
+                                    Label(fw.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(fw.rawValue)
+                                }
                             }
                         }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "square.grid.2x2")
-                            .font(.caption2)
-                        Text(frameworkFilter?.rawValue ?? "项目类型")
-                                                .font(.caption)
-                                                .lineLimit(1)
-                    }
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                
-                Divider()
-                    .frame(height: 12)
-                
-                // 运行状态筛选菜单
-                Menu {
-                    Button("全部") { statusFilter = nil }
-                    Divider()
-                    ForEach([ProjectStatus.running, .installing, .building, .compressing], id: \.self) { status in
-                        Button {
-                            statusFilter = statusFilter == status ? nil : status
-                        } label: {
-                            Label(status.description, systemImage: statusFilter == status ? "checkmark" : status.iconName)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.caption2)
+                            Text(frameworkFilter?.rawValue ?? "项目类型")
+                                .font(.caption)
+                                .lineLimit(1)
                         }
+                        
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: statusFilter?.iconName ?? "circle.dashed")
-                            .font(.caption2)
-                        Text(statusFilter?.description ?? "运行状态")
-                                                .font(.caption)
-                                                .lineLimit(1)
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .glassEffect(.regular.interactive())
+
+                    // 运行状态筛选菜单
+                    Menu {
+                        Button("全部") { statusFilter = nil }
+                        Divider()
+                        ForEach([ProjectStatus.running, .installing, .building, .compressing], id: \.self) { status in
+                            Button {
+                                statusFilter = statusFilter == status ? nil : status
+                            } label: {
+                                Label(status.description, systemImage: statusFilter == status ? "checkmark" : status.iconName)
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: statusFilter?.iconName ?? "circle.dashed")
+                                .font(.caption2)
+                            Text(statusFilter?.description ?? "运行状态")
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        
                     }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 7)
+                    .glassEffect(.regular.interactive())
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
             }
-            .padding(7)
-            .glassEffect(in: Capsule())
 
             Spacer()
 
@@ -622,9 +630,8 @@ private struct SearchFilterBar: View {
                         Text("清除")
                             .font(.caption2)
                     }
-                    .foregroundStyle(Color(red: 0.5, green: 0.5, blue: 0.55))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
             }
         }
         .padding(.horizontal, 20)
