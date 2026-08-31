@@ -202,16 +202,12 @@ struct ProjectCardView: View, Equatable {
                     ActionButton(icon: "hammer.fill", label: "构建", tint: .orange) {
                         showBuildOptions = true
                     }
-                    .confirmationDialog("选择构建方式", isPresented: $showBuildOptions, titleVisibility: .visible) {
-                        Button("快速构建") {
-                            Task { await appState.buildProject(project) }
-                        }
-                        Button("全新构建") {
-                            Task { await appState.cleanBuildProject(project) }
-                        }
-                        Button("取消", role: .cancel) {}
-                    } message: {
-                        Text("全新构建会删除 node_modules 并重新安装依赖，耗时较长")
+                    .popover(isPresented: $showBuildOptions, arrowEdge: .bottom) {
+                        BuildOptionsPopover(
+                            appState: appState,
+                            project: project,
+                            isPresented: $showBuildOptions
+                        )
                     }
                 }
             }
@@ -406,6 +402,81 @@ private struct NodeModulesTag: View {
             .padding(.vertical, 3)
             .background(Color.green.opacity(0.15), in: Capsule())
             .foregroundStyle(Color.green)
+    }
+}
+
+// MARK: - 构建方式气泡（含打包格式选择）
+
+/// macOS 的 confirmationDialog 只渲染 Button，无法显示 Picker，
+/// 因此改用 popover 承载打包格式选择与两种构建方式
+private struct BuildOptionsPopover: View {
+    let appState: AppState
+    let project: Project
+    @Binding var isPresented: Bool
+
+    // 本地副本：卡片视图不追踪全局 @Observable 状态，
+    // 用本地 State 保证 Picker 切换即时刷新，切换时立即写回该项目的记录（实时生效约定）
+    @State private var format: PackageFormat
+
+    init(appState: AppState, project: Project, isPresented: Binding<Bool>) {
+        self.appState = appState
+        self.project = project
+        self._isPresented = isPresented
+        _format = State(initialValue: appState.packageFormat(for: project))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("选择构建方式")
+                .font(.headline)
+
+            HStack() {
+                Text("打包格式")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+                
+                Picker("", selection: $format) {
+                    ForEach(PackageFormat.allCases) { format in
+                        Text(format.displayName).tag(format)
+                    }
+                }
+                .pickerStyle(.tabs)
+                .buttonBorderShape(.capsule)
+                .labelsHidden()
+            }
+
+            VStack(spacing: 8) {
+                Button {
+                    startBuild { await appState.buildProject(project) }
+                } label: {
+                    Label("快速构建", systemImage: "bolt.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
+
+                Button {
+                    startBuild { await appState.cleanBuildProject(project) }
+                } label: {
+                    Label("全新构建", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+            }
+        }
+        .padding(16)
+        .frame(width: 250)
+        .onChange(of: format) { _, newFormat in
+            appState.setPackageFormat(newFormat, for: project)
+        }
+    }
+
+    private func startBuild(_ action: @escaping () async -> Void) {
+        isPresented = false
+        Task { await action() }
     }
 }
 

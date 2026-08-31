@@ -201,14 +201,6 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    // 当前打包格式
-                    HStack(spacing: 3) {
-                        Image(systemName: "archivebox")
-                            .font(.caption2)
-                        Text(appState.packageFormat.displayName)
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 10)
@@ -355,21 +347,6 @@ private struct SettingsSheet: View {
                 Picker("", selection: $appState.themeMode) {
                     ForEach(ThemeMode.allCases) { mode in
                         Text(mode.displayName).tag(mode)
-                    }
-                }
-                .pickerStyle(.tabs)
-                .buttonBorderShape(.capsule)
-            }
-
-            HStack {
-                Text("打包格式")
-                    .font(.headline)
-
-                Spacer()
-
-                Picker("", selection: $appState.packageFormat) {
-                    ForEach(PackageFormat.allCases) { format in
-                        Text(format.displayName).tag(format)
                     }
                 }
                 .pickerStyle(.tabs)

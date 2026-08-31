@@ -120,9 +120,25 @@ final class AppState {
         didSet { UserDefaults.standard.set(themeMode.rawValue, forKey: savedThemeKey) }
     }
 
-    /// 打包格式（.zip / .tar.gz）
-    var packageFormat: PackageFormat = .zip {
-        didSet { UserDefaults.standard.set(packageFormat.rawValue, forKey: savedPackageFormatKey) }
+    /// 按项目路径独立记录的打包格式（.zip / .tar.gz）
+    var packageFormatsByPath: [String: PackageFormat] = [:] {
+        didSet {
+            let raw = packageFormatsByPath.mapValues { $0.rawValue }
+            UserDefaults.standard.set(raw, forKey: savedPackageFormatsKey)
+        }
+    }
+
+    /// 获取指定项目的打包格式；未记录时回退到旧版全局格式，再回退 .zip
+    func packageFormat(for project: Project) -> PackageFormat {
+        if let format = packageFormatsByPath[project.path.path] { return format }
+        if let str = UserDefaults.standard.string(forKey: legacyPackageFormatKey),
+           let format = PackageFormat(rawValue: str) { return format }
+        return .zip
+    }
+
+    /// 记录指定项目的打包格式（实时持久化）
+    func setPackageFormat(_ format: PackageFormat, for project: Project) {
+        packageFormatsByPath[project.path.path] = format
     }
 
     /// 构建压缩完成后是否删除构建输出文件夹（默认不开启）
@@ -150,7 +166,9 @@ final class AppState {
     private let savedCloudDriveKey = "savedCloudDriveURL"
     private let savedPinnedKey = "savedPinnedProjectIDs"
     private let savedThemeKey = "savedThemeMode"
-    private let savedPackageFormatKey = "savedPackageFormat"
+    private let savedPackageFormatsKey = "savedPackageFormatsByPath"
+    /// 旧版全局打包格式 key，仅用于迁移为按项目的默认值
+    private let legacyPackageFormatKey = "savedPackageFormat"
     private let savedRemoveDistKey = "savedRemoveDistAfterArchive"
 
     // MARK: - 初始化
@@ -166,9 +184,8 @@ final class AppState {
            let mode = ThemeMode(rawValue: str) {
             themeMode = mode
         }
-        if let str = UserDefaults.standard.string(forKey: savedPackageFormatKey),
-           let format = PackageFormat(rawValue: str) {
-            packageFormat = format
+        if let raw = UserDefaults.standard.dictionary(forKey: savedPackageFormatsKey) as? [String: String] {
+            packageFormatsByPath = raw.compactMapValues { PackageFormat(rawValue: $0) }
         }
         removeDistAfterArchive = UserDefaults.standard.bool(forKey: savedRemoveDistKey)
         Task { await detectEditors() }
@@ -383,7 +400,7 @@ final class AppState {
         let stream = await processManager.build(
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
-            packageFormat: packageFormat,
+            packageFormat: packageFormat(for: project),
             removeDistAfterArchive: removeDistAfterArchive,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
@@ -410,7 +427,7 @@ final class AppState {
         let stream = await processManager.cleanBuild(
             project: project,
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
-            packageFormat: packageFormat,
+            packageFormat: packageFormat(for: project),
             removeDistAfterArchive: removeDistAfterArchive,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
