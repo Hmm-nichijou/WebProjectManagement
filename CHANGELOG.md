@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.2.3] - 2026-08-31
+
+### 新增功能
+
+- **打包格式切换**：构建压缩支持 `.zip` 和 `.tar.gz`（`tar -czvf archive.tar.gz`）两种格式，在"选择构建方式"气泡中通过 Tabs 样式 Picker 切换，切换即时生效并写入构建命令
+- **打包格式按项目独立记录**：打包格式选择以项目路径为键持久化（`savedPackageFormatsByPath`），各项目互不影响；旧版全局格式 `savedPackageFormat` 自动迁移为默认值
+- **压缩后删除构建文件夹**：设置页新增开关（默认关闭），构建压缩成功后自动删除构建输出文件夹（如 `dist`），压缩失败时不删除
+- **H5 项目"打开"按钮**：HTML 静态项目卡片新增"打开"操作，直接在默认浏览器中打开项目目录下的 `index.html`（文件不存在时提示）
+
+### 改进
+
+- **"选择构建方式"改为 Popover 组件**：原 `confirmationDialog` 仅能渲染纯按钮列表，改用 Popover（`BuildOptionsPopover`）承载打包格式 Picker 与两种构建方式，按钮使用 `.glassProminent` / `.glass` 胶囊样式
+- **全面应用液态玻璃（Liquid Glass）效果**：
+  - 窗口背景改为 `glassEffect` 毛玻璃，随桌面壁纸产生折射与磨砂效果，自动适配浅色/深色外观
+  - 项目卡片、状态指示器、搜索框、框架/状态筛选菜单（`GlassEffectContainer` + `.regular.interactive()`，按压反馈仅作用于被点击项）全部玻璃化
+  - 设置与添加项目弹窗的输入框、按钮改为玻璃胶囊样式，隐藏窗口工具栏背景
+  - 外观模式 Picker 从 `segmented` 改为 `tabs` 胶囊样式
+- **最低系统要求提升至 macOS 27.0+**：因使用液态玻璃效果（`glassEffect`）重新设定部署目标
+- **设置项实时生效**：云盘 URL、主题模式、"压缩后删除构建文件夹"等设置修改后立即持久化并生效，移除设置弹窗的"保存"按钮和草稿状态；云盘 URL 与 Git 地址输入框新增一键清除按钮
+- **uni-app / uni-app x 项目隐藏运行和构建按钮**：与 unknown、微信小程序类型保持一致（`supportsRunBuild` 排除）
+- **日志按钮稳定占位**：卡片日志按钮空闲时透明且不可点击，避免按钮出现/消失导致卡片高度抖动
+- **编辑器菜单图标渲染**：`Label` 的 icon 参数改为 `HStack` + 16×16 缩放 `Image`，修复自定义 `NSImage` 应用图标的显示问题
+- **磁盘占用统计**：压缩包大小同时统计 `dist.zip` 和 `archive.tar.gz` 两种格式
+
+### Bug 修复
+
+- **nvm 环境兼容**：`~/.nvm/versions/node/*/bin` 是 glob 通配符，`Process` 不经过 shell 不会展开，导致找不到 node。现手动解析实际安装的版本目录，读取 `~/.nvm/alias/default` 识别默认版本（支持 `lts/*` 别名引用），默认版本优先加入 `PATH`，其余版本兜底
+- **窗口尺寸/位置无法记录**：SwiftUI `WindowGroup` 不会自动持久化窗口框架，`NSWindow.frameAutosaveName` 在窗口重建时存在名称冲突。新增 `WindowFrameAutosaver` 通过 UserDefaults + `didMove`/`didResize` 通知手动保存和恢复窗口框架（恢复时校验不小于最小尺寸）
+- **"跟随系统"外观切换不及时**：`.preferredColorScheme` 无法即时回退主窗口外观（应用级 `NSApp.appearance` 可能被此前的深色模式锁定）。新增 `WindowAppearanceSyncer` 直接同步控制 `NSApp.appearance` + `window.appearance`，"跟随系统"时同时清空两级外观
+- **切换打包格式后旧压缩包残留**：快速构建前先删除当前项目所有格式（`.zip` 与 `archive.tar.gz`）的构建压缩物；"删除所有构建"批量操作同样清理两种格式
+- **终端日志面板新增 Esc 快捷键关闭**：关闭按钮绑定 `keyboardShortcut(.escape)`
+
 ## [1.2.2] - 2026-06-30
 
 ### 新增功能
