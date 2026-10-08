@@ -270,6 +270,25 @@ final class AppState {
         }
     }
 
+    /// 运行/构建/重装依赖前先刷新一次项目信息，返回刷新后的最新项目
+    private func refreshBeforeOperation(_ project: Project) async -> Project {
+        await refreshProject(project)
+        return projects.first(where: { $0.id == project.id }) ?? project
+    }
+
+    /// 生成构建耗时日志行
+    private static func durationLine(label: String, since start: Date) -> String {
+        let seconds = Date().timeIntervalSince(start)
+        let text: String
+        if seconds < 60 {
+            text = String(format: "%.1f 秒", seconds)
+        } else {
+            let total = Int(seconds.rounded())
+            text = String(format: "%d 分 %d 秒", total / 60, total % 60)
+        }
+        return "\n[耗时] \(label)总耗时 \(text)\n"
+    }
+
     // MARK: - 项目置顶
 
     func isPinned(_ project: Project) -> Bool {
@@ -365,6 +384,7 @@ final class AppState {
 
     func startProject(_ project: Project, script: String = "dev") async {
         guard projects.contains(where: { $0.id == project.id }) else { return }
+        let project = await refreshBeforeOperation(project)
 
         let path = project.path.path
         logStore.clear(for: path)
@@ -391,11 +411,14 @@ final class AppState {
 
     func buildProject(_ project: Project) async {
         guard projects.contains(where: { $0.id == project.id }) else { return }
+        let project = await refreshBeforeOperation(project)
         updateProjectStatus(project, to: .building)
 
         let path = project.path.path
         logStore.clear(for: path)
         logViewingProjectID = project.id
+
+        let start = Date()
 
         let stream = await processManager.build(
             project: project,
@@ -413,16 +436,20 @@ final class AppState {
             guard let self else { return }
             await self.processManager.stop(projectPath: project.path)
             self.updateProjectStatus(project, to: .idle)
+            self.logStore.append(Self.durationLine(label: "快速构建", since: start), for: path)
         }
     }
 
     func cleanBuildProject(_ project: Project) async {
         guard projects.contains(where: { $0.id == project.id }) else { return }
+        let project = await refreshBeforeOperation(project)
         updateProjectStatus(project, to: .installing)
 
         let path = project.path.path
         logStore.clear(for: path)
         logViewingProjectID = project.id
+
+        let start = Date()
 
         let stream = await processManager.cleanBuild(
             project: project,
@@ -439,11 +466,13 @@ final class AppState {
             for await chunk in stream { self?.logStore.append(chunk, for: path) }
             guard let self else { return }
             self.updateProjectStatus(project, to: .idle)
+            self.logStore.append(Self.durationLine(label: "全新构建", since: start), for: path)
         }
     }
 
     func reinstallProject(_ project: Project) async {
         guard projects.contains(where: { $0.id == project.id }) else { return }
+        let project = await refreshBeforeOperation(project)
         updateProjectStatus(project, to: .installing)
 
         let path = project.path.path
