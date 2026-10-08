@@ -1,18 +1,18 @@
 # Web Project Management
 
-一款基于 Swift 6 + SwiftUI 构建的 macOS 原生桌面应用，专为前端开发者设计的项目管理工具。支持批量管理 Vue、React、Angular、uni-app、uni-app x、微信小程序及静态 HTML 项目，提供一键启动开发服务器、构建打包、依赖管理等常用操作，并以实时终端日志面板呈现执行过程。
+一款基于 Swift 6 + SwiftUI 构建的 macOS 原生桌面应用，专为前端开发者设计的项目管理工具。支持批量管理 Vue、React、Angular、uni-app、uni-app x、微信小程序及静态 HTML 项目，提供一键启动开发服务器、构建打包、依赖管理等常用操作，并以实时终端日志面板呈现执行过程。界面全面采用 macOS 液态玻璃（Liquid Glass）效果，随桌面壁纸产生折射与磨砂质感。
 
 ## 技术栈
 
 | 类别 | 技术                                                                 |
 |------|----------------------------------------------------------------------|
 | 语言 | Swift 6（严格并发检查，`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`） |
-| UI 框架 | SwiftUI（macOS 27.0+）                                               |
+| UI 框架 | SwiftUI（macOS 27.0+，液态玻璃 `glassEffect`）                      |
 | 状态管理 | `@Observable`（Observation 框架）                                    |
 | 并发模型 | Actor 隔离 + `AsyncStream` 日志流                                    |
 | 进程管理 | Foundation `Process` + `Pipe`（App Sandbox 已关闭）                  |
 | 应用检测 | Spotlight `mdfind` + `NSWorkspace`                                   |
-| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL、主题模式）             |
+| 持久化 | `UserDefaults`（目录路径、置顶状态、云盘 URL、主题模式、按项目打包格式、窗口框架） |
 | 构建系统 | Xcode 16+，`PBXFileSystemSynchronizedRootGroup`（源文件自动包含）    |
 
 ## 架构概览
@@ -72,11 +72,11 @@
 
 - **目录扫描**：选择项目集根目录后自动扫描一级子目录，识别包含 `package.json`、`index.html` 或特征文件的项目。采用两阶段策略——快速展示列表后，后台并发补充 git 和磁盘数据
 - **构建输出目录检测**：自动读取 `vite.config.ts/js/mjs` 中的 `build.outDir`，构建、压缩、清除构建物均使用项目实际输出目录名（默认 `dist`）
-- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），uni-app / uni-app x 项目（基于 `manifest.json` + `pages.json` 特征文件），微信小程序项目（基于 `miniprogram/pages/*.wxml`），以及 HTML 静态项目。unknown 和微信小程序类型隐藏运行和构建按钮
+- **框架识别**：智能检测 Vue、React、Angular 项目（基于 `dependencies`/`devDependencies` 分析），uni-app / uni-app x 项目（基于 `manifest.json` + `pages.json` 特征文件），微信小程序项目（基于 `miniprogram/pages/*.wxml`），以及 HTML 静态项目。unknown、微信小程序和 uni-app / uni-app x 类型隐藏运行和构建按钮
 - **包管理器检测**：通过锁文件（`package-lock.json`、`pnpm-lock.yaml`、`yarn.lock`）自动识别 npm/pnpm/yarn
 - **node_modules 安装标签**：已安装 node_modules 的项目在卡片上显示绿色胶囊标签，未安装则不显示
 - **Git 集成**：检测并展示当前分支名和工作区状态（修改/未跟踪/ahead/behind），工作区干净时不显示状态图标
-- **磁盘占用统计**：信息栏汇总显示所有项目的 node_modules、dist、dist.zip 总占用
+- **磁盘占用统计**：信息栏汇总显示所有项目的 node_modules、构建目录及压缩包（`.zip` 与 `.tar.gz`）总占用
 - **项目置顶**：置顶状态按绝对路径持久化到 UserDefaults，重新扫描或切换目录后不丢失
 - **未知类型兼容**：无法识别的项目类型仍保留在列表中显示
 
@@ -89,12 +89,15 @@
 ### 进程操作
 
 - **启动开发服务器**：执行 `npm/pnpm/yarn run dev`，实时输出日志
-- **快速构建**：执行 `build`（或 `border`）脚本，构建成功后自动压缩输出目录为 `.zip`（目录名从 `vite.config` 动态读取）
-- **全新构建**：两阶段流水线——删除 `node_modules` → 重装依赖 → 执行构建 → 压缩 dist
+- **快速构建**：执行 `build`（或 `border`）脚本，构建前自动清理所有格式的旧压缩包，构建成功后按所选格式压缩输出目录（目录名从 `vite.config` 动态读取）
+- **全新构建**：两阶段流水线——删除 `node_modules` → 重装依赖 → 执行构建 → 压缩输出目录
+- **打包格式**：支持 `.zip`（`dist.zip`）和 `.tar.gz`（`archive.tar.gz`）两种格式，在"选择构建方式"气泡中切换，选择按项目独立记忆，切换即时生效
+- **压缩后删除构建文件夹**：设置中开启后，构建压缩成功自动删除构建输出文件夹（如 `dist`），仅保留压缩包
 - **重装依赖**：删除 `node_modules` 后重新安装
 - **取消构建**：构建/安装/压缩过程中可点击"取消构建"终止操作，启停按钮独立不受影响
 - **停止进程**：先发送 `SIGINT` 优雅退出，超时后强制终止
 - **云盘集成**：构建并压缩完成后自动在浏览器中打开配置的云盘网站
+- **nvm 兼容**：手动解析 `~/.nvm/versions/node/` 下实际安装的版本目录（默认版本优先，支持 `lts/*` 别名），确保 `Process` 可找到 node
 
 ### 项目状态
 
@@ -110,6 +113,7 @@
 
 ### 快捷操作
 
+- **在浏览器中打开（H5 项目）**：HTML 静态项目卡片显示"打开"按钮，直接在默认浏览器中打开项目目录下的 `index.html`
 - **在 Finder 中打开**：直接在 Finder 中定位项目目录
 - **在编辑器中打开**：二级子菜单列出系统已安装的编辑器（VSCode、WebStorm、Cursor、Sublime Text、Nova），显示真实应用图标和名称。uni-app 项目在菜单顶部额外显示 HBuilderX，微信小程序项目在顶部额外显示微信开发者工具（需系统已安装）
 - **在终端中打开**：通过 AppleScript 在 Terminal.app 中打开并 `cd` 到项目目录
@@ -120,7 +124,7 @@
 
 工具栏"更多"菜单提供：
 
-- **删除所有构建**：批量删除所有项目的构建输出目录和压缩包，删除后立即刷新磁盘占用显示
+- **删除所有构建**：批量删除所有项目的构建输出目录及两种格式（`.zip` / `.tar.gz`）的压缩包，删除后立即刷新磁盘占用显示
 - **删除所有依赖**：批量删除所有项目的 `node_modules`，删除后立即更新卡片标签和磁盘占用
 
 ### Git 克隆
@@ -131,7 +135,7 @@
 
 底部统一的深色终端风格面板，功能包括：
 
-- 点击项目卡片上的日志按钮打开/切换/关闭面板
+- 点击项目卡片上的日志按钮打开/切换/关闭面板，支持 Esc 快捷键关闭
 - 实时显示进程 stdout/stderr 输出
 - 等宽字体 + 深色背景，模拟真实终端体验
 - 自动滚动开关
@@ -141,7 +145,11 @@
 
 ### 主题模式
 
-支持浅色、深色、跟随系统三种主题，偏好设置持久化到 UserDefaults。
+支持浅色、深色、跟随系统三种主题，偏好设置持久化到 UserDefaults，切换实时生效。外观同时同步应用级（`NSApp.appearance`）与窗口级（`window.appearance`）外观，确保"跟随系统"能即时回退。
+
+### 设置实时生效
+
+设置页中的所有选项（主题模式、云盘 URL、压缩后删除构建文件夹）修改后立即持久化并生效，无需点击保存按钮。
 
 ## 项目结构
 
@@ -150,7 +158,7 @@ Web Project Management/
 ├── Web Project Management.xcodeproj/
 │   └── project.pbxproj
 ├── Web Project Management/
-│   ├── WebProjectManagementApp.swift          # 应用入口，窗口配置与菜单栏命令
+│   ├── WebProjectManagementApp.swift          # 应用入口，窗口配置、窗口框架持久化与外观同步、菜单栏命令
 │   │
 │   ├── Models/                                # 数据模型层
 │   │   ├── Project.swift                      # Project 模型 + GitStatus + PackageManagerType 枚举
@@ -158,17 +166,17 @@ Web Project Management/
 │   │   └── FrameworkType.swift                # 前端框架类型枚举 + 标识色
 │   │
 │   ├── Core/                                  # 核心业务逻辑层
-│   │   ├── AppState.swift                     # 全局状态管理（@Observable + projectsRevision）+ ThemeMode + EditorInfo
+│   │   ├── AppState.swift                     # 全局状态管理（@Observable + projectsRevision）+ ThemeMode + PackageFormat + EditorInfo
 │   │   ├── LogStore.swift                     # 独立日志存储（按路径分代追踪，行缓冲区）
 │   │   ├── ProjectProcessManager.swift        # Actor 进程管理器（AsyncStream 日志流）
 │   │   └── ProjectScanner.swift               # 项目目录扫描器（框架/包管理器/Git/磁盘占用/构建目录识别）
 │   │
 │   ├── Views/                                 # SwiftUI 视图层
 │   │   ├── ContentView.swift                  # 主内容视图 + 搜索筛选 Menu + 过滤缓存 + 工具栏 + 设置 + 弹窗
-│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化 + 预计算参数）+ Git 状态 + 操作按钮
+│   │   ├── ProjectCardView.swift              # 项目卡片（Equatable 优化 + 预计算参数）+ Git 状态 + 操作按钮 + 构建方式气泡
 │   │   ├── LogDrawerView.swift                # 底部终端日志面板（LazyVStack 渲染）
 │   │   ├── EmptyStateView.swift               # 首次启动引导视图（拖拽/选择目录）
-│   │   └── AppBackgroundView.swift            # 窗口背景色
+│   │   └── AppBackgroundView.swift            # 窗口液态玻璃背景
 │   │
 │   └── Assets.xcassets/                       # 资源文件
 │       ├── AppIcon.appiconset/                # 应用图标
@@ -231,6 +239,7 @@ open "Web Project Management.xcodeproj"
 | `Cmd+R` | 刷新扫描 |
 | `Cmd+F` | 聚焦搜索框 |
 | `Cmd+,` | 打开设置 |
+| `Esc` | 关闭终端日志面板 |
 
 ## 用户偏好持久化
 
@@ -242,6 +251,9 @@ open "Web Project Management.xcodeproj"
 | `savedCloudDriveURL` | `String` | 云盘网站 URL |
 | `savedPinnedProjectIDs` | `Data` (JSON) | 置顶项目的绝对路径集合 |
 | `savedThemeMode` | `String` | 主题模式（light/dark/system） |
+| `savedPackageFormatsByPath` | `[String: String]` | 按项目路径记录的打包格式（zip/tar） |
+| `savedRemoveDistAfterArchive` | `Bool` | 压缩成功后是否删除构建输出文件夹 |
+| `MainWindowFrame` | `String` (NSRect) | 主窗口尺寸与位置 |
 
 ## 性能优化策略
 
