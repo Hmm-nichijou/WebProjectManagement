@@ -259,17 +259,10 @@ struct ProjectScanner: Sendable {
             }.value
         }
 
-        // 构建压缩包大小（同时统计 .zip 和 .tar.gz）
-        let zipPath = url.appendingPathComponent("\(buildOutDir).zip")
-        let tarPath = url.appendingPathComponent("archive.tar.gz")
-        for archivePath in [zipPath, tarPath] {
-            if fm.fileExists(atPath: archivePath.path) {
-                if let attrs = try? fm.attributesOfItem(atPath: archivePath.path),
-                   let size = attrs[.size] as? Int64 {
-                    distZipSize += size
-                }
-            }
-        }
+        // 构建压缩包大小（统计 .zip 与 .tar.gz，兼容带版本号/时间戳后缀的动态命名）
+        distZipSize = await Task.detached {
+            PackageFormat.archivesSize(in: url, outDir: buildOutDir)
+        }.value
 
         return (nodeModulesSize, distSize, distZipSize)
     }

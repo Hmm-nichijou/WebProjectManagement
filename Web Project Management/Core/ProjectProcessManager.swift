@@ -89,7 +89,7 @@ actor ProjectProcessManager {
 
     // MARK: - 执行构建
 
-    func build(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, removeDistAfterArchive: Bool = false, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
+    func build(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, removeDistAfterArchive: Bool = false, includeVersionInName: Bool = false, includeBuildTimeInName: Bool = false, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
         let path = project.path.path
         let session = Session()
         let packageManager = project.packageManager ?? .npm
@@ -106,9 +106,7 @@ actor ProjectProcessManager {
         let outDir = project.buildOutDir
         let distURL = project.path.appendingPathComponent(outDir)
         clearDirectory(distURL)
-        for format in PackageFormat.allCases {
-            try? FileManager.default.removeItem(at: project.path.appendingPathComponent(format.archiveName(for: outDir)))
-        }
+        PackageFormat.removeArchives(in: project.path, outDir: outDir)
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -140,7 +138,7 @@ actor ProjectProcessManager {
                     let dist = projectPath.appendingPathComponent(outDir)
                     if FileManager.default.fileExists(atPath: dist.path) {
                         onStatusChange?(.compressing)
-                        let archived = await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
+                        let archived = await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat, framework: project.frameworkType, includeVersion: includeVersionInName, includeBuildTime: includeBuildTimeInName)
 
                         // 压缩成功后按设置删除构建输出文件夹
                         await self.removeDistIfNeeded(projectPath: projectPath, path: path, outDir: outDir, enabled: archived && removeDistAfterArchive)
@@ -173,7 +171,7 @@ actor ProjectProcessManager {
 
     // MARK: - 全新构建（重装 + 打包）
 
-    func cleanBuild(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, removeDistAfterArchive: Bool = false, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
+    func cleanBuild(project: Project, cloudDriveURL: String? = nil, packageFormat: PackageFormat = .zip, removeDistAfterArchive: Bool = false, includeVersionInName: Bool = false, includeBuildTimeInName: Bool = false, onStatusChange: (@Sendable (ProjectStatus) -> Void)? = nil) -> AsyncStream<String> {
         let path = project.path.path
         let session = Session()
         let packageManager = project.packageManager ?? .npm
@@ -182,7 +180,7 @@ actor ProjectProcessManager {
         let outDir = project.buildOutDir
         clearDirectory(project.path.appendingPathComponent("node_modules"))
         clearDirectory(project.path.appendingPathComponent(outDir))
-        try? FileManager.default.removeItem(at: project.path.appendingPathComponent(packageFormat.archiveName(for: outDir)))
+        PackageFormat.removeArchives(in: project.path, outDir: outDir)
 
         // 预计算环境变量（安装和构建共用）
         let env = buildEnvironment()
@@ -226,7 +224,7 @@ actor ProjectProcessManager {
 
                 // 清理构建输出目录准备构建
                 await self.clearDirectory(projectPath.appendingPathComponent(outDir))
-                try? FileManager.default.removeItem(at: projectPath.appendingPathComponent(packageFormat.archiveName(for: outDir)))
+                PackageFormat.removeArchives(in: projectPath, outDir: outDir)
 
                 let buildProcess = Process()
                 buildProcess.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -251,7 +249,7 @@ actor ProjectProcessManager {
                             let dist = projectPath.appendingPathComponent(outDir)
                             if FileManager.default.fileExists(atPath: dist.path) {
                                 onStatusChange?(.compressing)
-                                let archived = await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat)
+                                let archived = await self.archiveDist(projectPath: projectPath, path: path, outDir: outDir, format: packageFormat, framework: project.frameworkType, includeVersion: includeVersionInName, includeBuildTime: includeBuildTimeInName)
 
                                 // 压缩成功后按设置删除构建输出文件夹
                                 await self.removeDistIfNeeded(projectPath: projectPath, path: path, outDir: outDir, enabled: archived && removeDistAfterArchive)
@@ -378,11 +376,47 @@ actor ProjectProcessManager {
         }
     }
 
+    /// 读取项目版本号（用于压缩包命名，取值来源随项目类型而定）
+    /// - vue / react / angular：读取根目录 package.json 的 version
+    /// - uniapp / uniappx：读取根目录 manifest.json 的 versionName
+    /// - 其余项目类型暂不取版本号
+    private static func projectVersion(at projectPath: URL, framework: FrameworkType) -> String? {
+        switch framework {
+        case .vue, .react, .angular:
+            return jsonStringValue("version", in: projectPath.appendingPathComponent("package.json"))
+        case .uniapp, .uniappx:
+            return jsonStringValue("versionName", in: projectPath.appendingPathComponent("manifest.json"))
+        case .wechatMiniProgram, .htmlStatic, .unknown:
+            return nil
+        }
+    }
+
+    /// 读取 JSON 文件中指定字符串字段的值
+    private static func jsonStringValue(_ key: String, in url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = json[key] as? String,
+              !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// 构建完成时间戳（用于压缩包命名，格式：yyyyMMddHHmmss）
+    private static func archiveTimestamp() -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMddHHmmss"
+        return formatter.string(from: Date())
+    }
+
     /// 构建完成后压缩构建输出目录，返回压缩是否成功
+    /// - includeVersion：压缩包文件名中加入项目版本号
+    /// - includeBuildTime：压缩包文件名中加入构建完成时间
     @discardableResult
-    private func archiveDist(projectPath: URL, path: String, outDir: String, format: PackageFormat) async -> Bool {
+    private func archiveDist(projectPath: URL, path: String, outDir: String, format: PackageFormat, framework: FrameworkType, includeVersion: Bool, includeBuildTime: Bool) async -> Bool {
         guard let session = sessions[path] else { return false }
-        let archiveName = format.archiveName(for: outDir)
+        let version = includeVersion ? Self.projectVersion(at: projectPath, framework: framework) : nil
+        let timestamp = includeBuildTime ? Self.archiveTimestamp() : nil
+        let archiveName = format.archiveName(for: outDir, version: version, timestamp: timestamp)
         appendLog("[压缩] 正在打包 \(archiveName)...\n", to: session)
 
         let archiveProcess = Process()

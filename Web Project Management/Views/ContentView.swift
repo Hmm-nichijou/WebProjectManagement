@@ -371,6 +371,40 @@ private struct SettingsSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("压缩包名称包含版本号")
+                        .font(.headline)
+
+                    Spacer()
+
+                    Toggle("", isOn: $appState.includeVersionInArchiveName)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                Text("读取项目版本号加入压缩包文件名，与其它片段用 _ 衔接")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("压缩包名称包含构建时间")
+                        .font(.headline)
+
+                    Spacer()
+
+                    Toggle("", isOn: $appState.includeBuildTimeInArchiveName)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                Text("将构建完成时间加入压缩包文件名，与其它片段用 _ 衔接")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
                 Text("云盘网站")
                     .font(.headline)
 
@@ -413,7 +447,7 @@ private struct SettingsSheet: View {
             }
         }
         .padding(24)
-        .frame(width: 440, height: 420)
+        .frame(width: 440, height: 560)
     }
 }
 

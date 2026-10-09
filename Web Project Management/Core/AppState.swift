@@ -23,14 +23,62 @@ enum PackageFormat: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// 压缩包基础文件名（不含扩展名）
+    /// - zip：使用构建目录名（如 dist）
+    /// - tar：固定使用 archive
+    nonisolated func archiveBaseName(for outDir: String) -> String {
+        switch self {
+        case .zip: outDir
+        case .tar: "archive"
+        }
+    }
+
     /// 给定构建输出目录名，返回压缩包文件名
     /// - zip：使用构建目录名（如 dist.zip）
     /// - tar：固定使用 archive.tar.gz
-    nonisolated func archiveName(for outDir: String) -> String {
-        switch self {
-        case .zip: "\(outDir).zip"
-        case .tar: "archive.tar.gz"
+    /// - 可选追加版本号 / 构建完成时间，多个片段用 "_" 衔接
+    ///   例：dist_1.2.0_20261009153000.zip、archive_1.2.0.tar.gz
+    nonisolated func archiveName(for outDir: String, version: String? = nil, timestamp: String? = nil) -> String {
+        var segments: [String] = []
+        if let version, !version.isEmpty { segments.append(version) }
+        if let timestamp, !timestamp.isEmpty { segments.append(timestamp) }
+        let suffix = segments.isEmpty ? "" : "_" + segments.joined(separator: "_")
+        return archiveBaseName(for: outDir) + suffix + archiveExtension
+    }
+
+    /// 删除目录下所有该构建输出目录对应的压缩包（兼容带版本号/时间戳后缀的动态命名），返回删除数量
+    @discardableResult
+    nonisolated static func removeArchives(in directory: URL, outDir: String) -> Int {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else { return 0 }
+        var removed = 0
+        for format in PackageFormat.allCases {
+            let base = format.archiveBaseName(for: outDir)
+            let ext = format.archiveExtension
+            for name in names where name == base + ext || (name.hasPrefix(base + "_") && name.hasSuffix(ext)) {
+                try? fm.removeItem(at: directory.appendingPathComponent(name))
+                removed += 1
+            }
         }
+        return removed
+    }
+
+    /// 统计目录下所有压缩包（.zip / .tar.gz）的总大小
+    nonisolated static func archivesSize(in directory: URL, outDir: String) -> Int64 {
+        let fm = FileManager.default
+        guard let names = try? fm.contentsOfDirectory(atPath: directory.path) else { return 0 }
+        var total: Int64 = 0
+        for format in PackageFormat.allCases {
+            let base = format.archiveBaseName(for: outDir)
+            let ext = format.archiveExtension
+            for name in names where name == base + ext || (name.hasPrefix(base + "_") && name.hasSuffix(ext)) {
+                if let attrs = try? fm.attributesOfItem(atPath: directory.appendingPathComponent(name).path),
+                   let size = attrs[.size] as? Int64 {
+                    total += size
+                }
+            }
+        }
+        return total
     }
 }
 
@@ -146,6 +194,16 @@ final class AppState {
         didSet { UserDefaults.standard.set(removeDistAfterArchive, forKey: savedRemoveDistKey) }
     }
 
+    /// 压缩包文件名中是否包含版本号（读取 package.json 的 version 字段，默认不开启）
+    var includeVersionInArchiveName: Bool = false {
+        didSet { UserDefaults.standard.set(includeVersionInArchiveName, forKey: savedIncludeVersionKey) }
+    }
+
+    /// 压缩包文件名中是否包含构建完成时间（默认不开启）
+    var includeBuildTimeInArchiveName: Bool = false {
+        didSet { UserDefaults.standard.set(includeBuildTimeInArchiveName, forKey: savedIncludeBuildTimeKey) }
+    }
+
     // MARK: - 私有 / 常量
 
     let processManager = ProjectProcessManager()
@@ -170,6 +228,8 @@ final class AppState {
     /// 旧版全局打包格式 key，仅用于迁移为按项目的默认值
     private let legacyPackageFormatKey = "savedPackageFormat"
     private let savedRemoveDistKey = "savedRemoveDistAfterArchive"
+    private let savedIncludeVersionKey = "savedIncludeVersionInArchiveName"
+    private let savedIncludeBuildTimeKey = "savedIncludeBuildTimeInArchiveName"
 
     // MARK: - 初始化
 
@@ -188,6 +248,8 @@ final class AppState {
             packageFormatsByPath = raw.compactMapValues { PackageFormat(rawValue: $0) }
         }
         removeDistAfterArchive = UserDefaults.standard.bool(forKey: savedRemoveDistKey)
+        includeVersionInArchiveName = UserDefaults.standard.bool(forKey: savedIncludeVersionKey)
+        includeBuildTimeInArchiveName = UserDefaults.standard.bool(forKey: savedIncludeBuildTimeKey)
         Task { await detectEditors() }
     }
 
@@ -425,6 +487,8 @@ final class AppState {
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
             packageFormat: packageFormat(for: project),
             removeDistAfterArchive: removeDistAfterArchive,
+            includeVersionInName: includeVersionInArchiveName,
+            includeBuildTimeInName: includeBuildTimeInArchiveName,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
@@ -456,6 +520,8 @@ final class AppState {
             cloudDriveURL: cloudDriveURL.isEmpty ? nil : cloudDriveURL,
             packageFormat: packageFormat(for: project),
             removeDistAfterArchive: removeDistAfterArchive,
+            includeVersionInName: includeVersionInArchiveName,
+            includeBuildTimeInName: includeBuildTimeInArchiveName,
             onStatusChange: { [weak self] status in
                 Task { @MainActor in self?.updateProjectStatus(project, to: status) }
             }
@@ -559,11 +625,8 @@ final class AppState {
             for (_, path, outDir) in projectInfos {
                 let dist = path.appendingPathComponent(outDir)
                 if fm.fileExists(atPath: dist.path) { try? fm.removeItem(at: dist); count += 1 }
-                // 清理两种格式的压缩包，避免切换格式后旧包残留
-                let zip = path.appendingPathComponent("\(outDir).zip")
-                let tar = path.appendingPathComponent("archive.tar.gz")
-                if fm.fileExists(atPath: zip.path) { try? fm.removeItem(at: zip); count += 1 }
-                if fm.fileExists(atPath: tar.path) { try? fm.removeItem(at: tar); count += 1 }
+                // 清理两种格式的压缩包（含带版本号/时间戳后缀的动态命名），避免切换格式后旧包残留
+                count += PackageFormat.removeArchives(in: path, outDir: outDir)
             }
             return count
         }.value
